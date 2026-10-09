@@ -90,7 +90,7 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
     if (!neighbor || cell.container !== neighbor.container) continue;
     const opposite = (direction + 2) % 4;
     const a = edgeAt(cell, direction), b = edgeAt(neighbor, opposite);
-    if (a !== 3 && b !== 3 || cell.storesHeat === neighbor.storesHeat && a !== 2 && b !== 2) continue;
+    if (a !== 3 && b !== 3 || cell.storesHeat && neighbor.storesHeat && a !== 2 && b !== 2) continue;
     const owner = a === 3 ? cell : neighbor;
     const side = owner === cell ? 1 : -1, tangent = direction === 1 ? { x: 0, y: 1 } : { x: -1, y: 0 };
     const normal = { x: tangent.y * side, y: -tangent.x * side };

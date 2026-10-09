@@ -40,6 +40,21 @@ The importer reads the installation without changing it. The generated `public/l
 
 Progress, discovered shortcuts, cached room states, and entry baselines are saved in browser local storage. The world selector provides direct access to the overworld, worlds 1–9, A, and B without changing completion progress. The overworld button opens the original outer map; canonical exits connect world maps to that map and its entrance hall. Saved rooms acquire missing outer parents without changing their current layout. World-map entrances transform when their corresponding levels are completed. Undo includes resets, scene transitions, and completion progress within the current browser session. The header, scene, controls, and footer occupy separate layout rows; only the level list scrolls within the sidebar. Fullscreen play expands the game area and preserves its controls and camera.
 
+## Level workbench
+
+The header's level editor opens a separate project with its own browser draft. Copy an imported room or create a room, paint blocks, glass, fixed walls, demons, goals, portals, and boundary pistons, then set temperature, capacity, and each face's edge property. The layer selector edits inventory inside any piston, including nested pistons. Project JSON preserves the complete room definitions and test cases. Editing and testing leave gameplay progress separate.
+
+Play mode uses the game's movement and room-session functions. It records manual operations, supports undo and redo, and retains completed rooms for inspection. A timeline exposes every movement and heat frame. Operation sequences accept `U D L R`, arrows, repetition such as `R3`, and `RESET ENTER EXIT HINT UNDO REDO`. `E(room-id)` selects a specific portal. Replay steps include blocked operations; game move counts only include accepted movement.
+
+Checks use `{ "step": 1, "path": "players.0.temperature", "equals": 0 }`. Step zero checks the initial state. Paths address the displayed state, including `accepted`, `cells`, `players`, `pistons`, `bodies`, and intermediate `frames`. Cells sort by key and pistons by baseKey. Recording a settled result creates a full set of checks for that replay step. Exported projects can run without the browser:
+
+```powershell
+npm run test:replay
+npm run test:replay -- "D:\experiments\maxwell-project.json"
+```
+
+The default suite includes four mechanism fixtures and recorded routes for [1-1](https://www.youtube.com/watch?v=gKuCMkj5w04) and [1-2](https://www.youtube.com/watch?v=u9gbDcNc3Qw), published by Locke's Game Library. The latter checks overheating, reset, and completion. A failed checkpoint reports its step, property path, expected value, and actual value; the command exits with a nonzero status. Original room data stays in the local imported catalogue.
+
 ## Implemented scope
 
 - The full hierarchy includes the entrance hall, overworld, worlds 1–9, A, and B, with 322 main and nested rooms, 177 extra and meta rooms, and 641 hint scenes (1,153 imported scenes).

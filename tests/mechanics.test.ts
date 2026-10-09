@@ -83,6 +83,10 @@ test('joined adhesive faces retain a single checker layer with the sticky cell t
     [[cell(4, 0, 0, 0, 0x55, false), cell(5, 1, 0, -1, 0x57)], 5],
     [[cell(4, 0, 0, 1, 0x75), cell(5, 1, 0, 1, 0x56)], 4],
     [[cell(4, 0, 0, 0, 0x5d), cell(5, 0, 1, 0, 0x55, false)], 4],
+    [[cell(4, 0, 0, -1, 0x75, false), cell(5, 1, 0)], 4],
+    [[cell(4, 0, 0, 0, 0x55), cell(5, 1, 0, 1, 0x57, false)], 5],
+    [[cell(4, 0, 0, 0, 0x75, false), cell(5, 1, 0, 0, 0x55, false)], 4],
+    [[cell(4, 0, 0, 0, 0x55, false), cell(5, 1, 0, -1, 0x57, false)], 5],
   ] as [Cell[], number][]) {
     const geometry = bodyLayerGeometry(cells, 0.96), positions = geometry.getAttribute('position'), owners = geometry.getAttribute('ownerKey'), uv = geometry.getAttribute('uv');
     const indices = Array.from({ length: positions.count }, (_, i) => i).filter(i => owners.getX(i) === owner);
@@ -106,6 +110,7 @@ test('ordinary welds, homogeneous sticky solids, and separate bodies have no adh
     [cell(0, 0, 0, 0, 0x75), cell(1, 1, 0, 0, 0x57)],
     [cell(0, 0, 0, 0, 0x75), cell(1, 1, 0)],
     [cell(0, 0, 0, 0, 0x75)],
+    [cell(0, 0, 0, 0, 0x45, false), cell(1, 1, 0, 0, 0x54, false)],
   ]) {
     const geometry = bodyLayerGeometry(cells, 0.96), owners = geometry.getAttribute('ownerKey');
     assert.ok(Array.from({ length: owners.count }, (_, i) => owners.getX(i)).every(owner => owner === -1));

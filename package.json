@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "import:levels": "node scripts/import-levels.mjs",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:replay": "node --import tsx scripts/replay-project.ts"
   },
   "dependencies": { "three": "0.186.1" },
   "devDependencies": { "@types/three": "^0.183.1", "typescript": "^5.9.3", "vite": "8.3.4", "tsx": "^4.21.0" }

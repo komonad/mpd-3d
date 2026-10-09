@@ -1,5 +1,6 @@
 import './style.css';
 import { GameScene } from './scene';
+import { LevelEditor } from './editor';
 import { laboratory } from './laboratory';
 import { cloneState, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
@@ -30,7 +31,7 @@ app.innerHTML = `
     <button class="icon-button mobile-menu" id="menu-button" aria-label="显示关卡列表">${icon('menu')}</button>
     <a class="brand" href="#" aria-label="Maxwell 3D 首页"><span class="brand-mark"><i></i><b>••</b></span><span>MAXWELL’S<small>PUZZLING DEMON</small></span><em>3D</em></a>
     <div class="header-center"><span class="status-dot"></span> A STUDY IN TEMPERATURE <span class="header-line"></span><span id="header-world">温度的世界</span></div>
-    <div class="header-actions"><button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效">${icon('sound')}</button><button class="icon-button" id="help-button" aria-label="玩法说明" title="玩法说明">${icon('help')}</button><button class="icon-button" id="settings-button" aria-label="画面设置" title="画面设置">${icon('settings')}</button></div>
+    <div class="header-actions"><button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效">${icon('sound')}</button><button class="icon-button" id="help-button" aria-label="玩法说明" title="玩法说明">${icon('help')}</button><button class="icon-button" id="settings-button" aria-label="画面设置" title="画面设置">${icon('settings')}</button><button id="editor-button">关卡编辑器</button></div>
   </header>
   <main class="workspace">
     <aside class="sidebar" aria-label="关卡选择">
@@ -73,6 +74,7 @@ interface Preferences { tilt: number; light: number; quality: boolean; grid: boo
 const storageKey = 'maxwell3d-save-v2';
 const preferencesKey = 'maxwell3d-preferences-v1';
 let data: Dataset, level: Level, state: State, scene: GameScene;
+let editor: LevelEditor;
 let session: Session, solved = new Set<string>(), undoHistory: Snapshot[] = [], redoHistory: Snapshot[] = [];
 let selectedWorld: string;
 let category: 'main' | 'extra' | 'lab' = 'main';
@@ -173,6 +175,7 @@ function selectLevel(id: string): void {
   remember(); session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
 }
 async function step(direction: Direction): Promise<void> {
+  if (editor?.active) { editor.command((['L', 'D', 'R', 'U'] as const)[direction]); return; }
   if (resolving) { queuedDirection = direction; return; }
   const cooldown = 90 - (performance.now() - inputTime);
   if (cooldown > 0) { queuedDirection = direction; clearTimeout(inputTimer); inputTimer = setTimeout(flushInput, cooldown); return; }
@@ -219,10 +222,11 @@ async function step(direction: Direction): Promise<void> {
 }
 function flushInput(): void { if (!resolving && queuedDirection !== undefined) { const direction = queuedDirection; queuedDirection = undefined; void step(direction); } }
 function restore(s: Snapshot): void { const sameLevel = level.id === s.current.levelId; session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current, sameLevel); }
-function undo(): void { const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
-function redo(): void { const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
-function reset(): void { if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
+function undo(): void { if (editor?.active) { editor.command('UNDO'); return; } const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
+function redo(): void { if (editor?.active) { editor.command('REDO'); return; } const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
+function reset(): void { if (editor?.active) { editor.command('RESET'); return; } if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
 function enter(targetId?: string): void {
+  if (editor?.active) { editor.command('ENTER', targetId); return; }
   if (resolving) return;
   const next = enterPortal(data, session, targetId);
   if (!next) {
@@ -232,6 +236,7 @@ function enter(targetId?: string): void {
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
 function exit(): void {
+  if (editor?.active) { editor.command('EXIT'); return; }
   if (resolving && state.solved) return;
   if (resolving) cancelPlayback();
   const next = exitLevel(data, session);
@@ -250,7 +255,7 @@ function startHint(): void {
   if (resolving || !level.hintId) return; const next = enterHint(data, session, level.hintId); if (!next) return;
   $<HTMLDialogElement>('#hint-dialog').close(); remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
-function requestHint(): void { if (!resolving) level.hintId ? startHint() : openHint(); }
+function requestHint(): void { if (editor?.active) { editor.command('HINT'); return; } if (!resolving) level.hintId ? startHint() : openHint(); }
 function applyPreferences(): void {
   scene.setTilt(preferences.tilt); scene.setExposure(preferences.light); scene.setQuality(preferences.quality); scene.setGrid(preferences.grid); scene.setFreeView(preferences.freeView);
   $('#tilt-label').textContent = `${preferences.tilt}°`; $('#tilt-output').textContent = `${preferences.tilt}°`; $('#light-output').textContent = preferences.light.toFixed(2);
@@ -283,13 +288,14 @@ async function toggleFullscreen(): Promise<void> {
   updateFullscreen();
 }
 function bind(): void {
+  $('#editor-button').onclick = () => { if (editor.active) editor.close(); else { cancelPlayback(); $('#editor-button').setAttribute('data-origin', level.id); editor.open(level); } };
   $('#level-list').addEventListener('click', e => { const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-level]'); if (button) selectLevel(button.dataset.level!); });
   $('#main-tab').onclick = () => { category = 'main'; renderLevels(); }; $('#extra-tab').onclick = () => { category = 'extra'; renderLevels(); };
   $('#lab-tab').onclick = () => { category = 'lab'; renderLevels(); };
-  $('#world-button').onclick = $('#breadcrumb-world').onclick = () => selectLevel(selectedWorld);
+  $('#world-button').onclick = $('#breadcrumb-world').onclick = () => { if (!editor.active) selectLevel(selectedWorld); };
   $('#world-picker').onchange = () => selectLevel($<HTMLSelectElement>('#world-picker').value);
   $('#hub-button').onclick = () => { if (data.hub) selectLevel(data.hub); };
-  $('.brand').onclick = e => { e.preventDefault(); selectLevel(data.hub ?? data.world); };
+  $('.brand').onclick = e => { e.preventDefault(); if (editor.active) editor.close(); else selectLevel(data.hub ?? data.world); };
   $('#undo-button').onclick = undo; $('#redo-button').onclick = redo; $('#reset-button').onclick = reset;
   $('#camera-button').onclick = () => { scene.resetCamera(); notify('镜头已回到默认位置。'); };
   $('#free-view-button').onclick = toggleFreeView;
@@ -317,13 +323,14 @@ function bind(): void {
   $('#settings-reset').onclick = () => { preferences = { ...preferences, tilt: 32, light: 1.05, quality: true, grid: false, freeView: false }; applyPreferences(); scene.resetCamera(); };
   document.addEventListener('keydown', e => {
     ctrlHeld = e.ctrlKey;
-    if (document.querySelector('dialog[open]') || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select')) return;
+    if (document.querySelector('dialog[open]') || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select, textarea, [contenteditable="true"]')) return;
     const key = e.key.toLowerCase(); const keys: Record<string, Direction> = { arrowleft: 0, a: 0, arrowdown: 1, s: 1, arrowright: 2, d: 2, arrowup: 3, w: 3 };
+    if (editor.active && !editor.playing && key !== 'f' && key !== 'v') return;
     if (key in keys) { e.preventDefault(); step(keys[key]); }
     else if (e.ctrlKey) return;
-    else if (key === 'tab' && state.pistons?.some(p => p.model === 'boundary') && (e.target === document.body || (e.target as HTMLElement).matches('canvas'))) { e.preventDefault(); $('#piston-number-button').click(); }
+    else if (key === 'tab' && (editor.active ? editor.hasBoundaryPistons : state.pistons?.some(p => p.model === 'boundary')) && (e.target === document.body || (e.target as HTMLElement).matches('canvas'))) { e.preventDefault(); $('#piston-number-button').click(); }
     else if (key === 'z' || key === 'u') { e.preventDefault(); undo(); }
-    else if (key === 'y') redo(); else if (key === 'r') reset(); else if (key === 'f') toggleFreeView(); else if (key === 'e' || key === 'enter' || key === ' ') { e.preventDefault(); if (!resolving) { if (state.solved) canExit() ? exit() : nextLevel(); else enter(); } }
+    else if (key === 'y') redo(); else if (key === 'r') reset(); else if (key === 'f') toggleFreeView(); else if (key === 'e' || key === 'enter' || key === ' ') { e.preventDefault(); if (editor.active) enter(); else if (!resolving) { if (state.solved) canExit() ? exit() : nextLevel(); else enter(); } }
     else if (key === 'q' || key === 'backspace') { e.preventDefault(); exit(); } else if (key === 'h') requestHint();
     else if (key === 'v') { e.preventDefault(); void toggleFullscreen(); }
     else if (key === 'escape' && (document.fullscreenElement === $('.play-area') || $('.play-area').classList.contains('fullscreen-fallback'))) { e.preventDefault(); void toggleFullscreen(); }
@@ -333,7 +340,7 @@ function bind(): void {
     const element = $('#demon-status'); element.dataset.temperature = String(temperature);
     $('#demon-status span').textContent = `小妖 · ${temperature === 1 ? '高温' : temperature === -1 ? '低温' : temperature === 2 ? '第4温度' : '常温'} · ${status}${status.startsWith('假死') ? ' · Z 撤销 / R 重置' : ''}`;
   };
-  scene.onNoteClick = text => { $('#hint-text').textContent = text; $('#start-hint-button').toggleAttribute('disabled', !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal(); };
+  scene.onNoteClick = text => { $('#hint-text').textContent = text; $('#start-hint-button').toggleAttribute('disabled', editor.active || !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal(); };
   scene.onHover = (key, shown) => {
     const info = $('#hover-info'), model = key === null || !shown ? undefined : inspectCell(shown, key, labels);
     if (!model) { info.hidden = true; return; }
@@ -362,6 +369,7 @@ async function start(): Promise<void> {
     const response = await fetch('/levels.local.json'); if (!response.ok) throw new Error('关卡数据尚未导入。请在项目目录运行 npm run import:levels。');
     data = await response.json(); data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
+    editor = new LevelEditor(data, scene, () => load(session.current.levelId, session.current.outside, session.current, true));
     try { const saved = JSON.parse(localStorage.getItem(preferencesKey) ?? 'null'); if (saved) preferences = { ...preferences, ...saved }; } catch { /* Defaults remain valid when a browser save is unreadable. */ }
     applyPreferences();
     selectedWorld = data.world;
