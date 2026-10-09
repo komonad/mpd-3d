@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bodies, cloneState, initialState, move, transferHeat } from '../src/engine';
-import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
+import { DoubleSide, Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
 import { bodyContours, bodyLayerGeometry, bodyGeometry, bodySurfaceGeometries } from '../src/body-geometry';
 import { glassRimGeometry } from '../src/glass-geometry';
 import { laboratory } from '../src/laboratory';
@@ -85,15 +85,46 @@ test('cube surfaces preserve height and mixed bodies omit shared walls', () => {
   const bounds = g.boundingBox!; assert.ok(Math.abs(bounds.max.y - bounds.min.y - 0.96) < 0.001);
   assert.ok(Math.abs(bounds.max.x - bounds.min.x - 0.96) < 0.001); g.dispose();
   const mixed = bodyGeometry([cell(0, 0, 0), cell(1, 1, 0, 0, 0x55, false)], 0.96);
-  assert.equal(mixed.getAttribute('position').count, 60); assert.deepEqual(mixed.groups.map(g => g.materialIndex), [0, 1]); mixed.dispose();
+  assert.deepEqual(mixed.groups.map(g => g.materialIndex), [0, 1]);
+  const mesh = new Mesh(mixed, [new MeshBasicMaterial({ side: DoubleSide }), new MeshBasicMaterial({ side: DoubleSide })]); mesh.updateMatrixWorld();
+  const ray = new Raycaster(new Vector3(0.5, 0.5, 0), new Vector3(1, 0, 0));
+  const hits = ray.intersectObject(mesh); assert.ok(hits.length); assert.ok(hits.every(hit => hit.point.x > 1.45));
+  mixed.dispose(); (mesh.material as MeshBasicMaterial[]).forEach(m => m.dispose());
 });
 test('glass remains separate from opaque occluders within one connected body', () => {
   const cells = [cell(0, 0, 0), cell(1, 1, 0, 0, 0x55, false)];
   const { solid, glass } = bodySurfaceGeometries(cells, 0.96);
   assert.deepEqual(solid!.groups.map(g => g.materialIndex), [0]);
   assert.deepEqual(glass!.groups.map(g => g.materialIndex), [1]);
-  assert.equal(solid!.groups[0].count + glass!.groups[0].count, 60);
+  assert.equal(solid!.groups[0].count + glass!.groups[0].count, solid!.getAttribute('position').count);
   solid!.dispose(); glass!.dispose();
+});
+test('thermal and glass material partitions retain the complete rounded shape', () => {
+  const points = [[0, 0], [1, 0], [0, 1]];
+  const uniform = bodyGeometry(points.map(([x, y], i) => cell(i, x, y)), 0.96);
+  for (const glass of [false, true]) {
+    const cells = points.map(([x, y], i) => cell(i, x, y, i === 1 ? 1 : 0, 0x55, !(glass && i === 1)));
+    const mixed = bodyGeometry(cells, 0.96), material = new MeshBasicMaterial();
+    const a = new Mesh(uniform, material), b = new Mesh(mixed, cells.map(() => material)); a.updateMatrixWorld(); b.updateMatrixWorld();
+    const ray = new Raycaster();
+    for (let x = -0.5; x <= 1.5; x += 0.07) for (let z = -0.5; z <= 1.5; z += 0.07) {
+      ray.set(new Vector3(x, 3, z), new Vector3(0, -1, 0));
+      const first = ray.intersectObject(a)[0], second = ray.intersectObject(b)[0];
+      assert.equal(Boolean(second), Boolean(first), `Outline differs at ${x},${z}`);
+      if (first && second) assert.ok(first.point.distanceTo(second.point) < 0.00001);
+    }
+    const normals = mixed.getAttribute('normal');
+    assert.ok(Array.from({ length: normals.count }, (_, i) => Math.abs(normals.getX(i))).some(v => v > 0.1 && v < 0.9));
+    mixed.dispose(); material.dispose();
+  }
+  uniform.dispose();
+});
+test('glass attached to a solid body has no rim across the welded interface', () => {
+  const geometry = glassRimGeometry([cell(0, 0, 0), cell(1, 1, 0, 0, 0x55, false)], 0.96);
+  const material = new MeshBasicMaterial(), mesh = new Mesh(geometry, material); mesh.updateMatrixWorld();
+  const ray = new Raycaster(new Vector3(0.5, 3, 0), new Vector3(0, -1, 0)); assert.equal(ray.intersectObject(mesh).length, 0);
+  ray.set(new Vector3(1.45, 3, 0), new Vector3(0, -1, 0)); assert.ok(ray.intersectObject(mesh).length > 0);
+  geometry.dispose(); material.dispose();
 });
 test('hot anchored pistons expand and can push a rigid body', () => {
   const l = level([cell(0, 3, 3, 1, 0xaa, true, true), cell(1, 4, 3), cell(2, 5, 3)]);

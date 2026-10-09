@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { bodyContours } from './body-geometry';
+import { bodyContours, partitionBodySurface } from './body-geometry';
 import type { Cell } from './types';
 
 export function glassRimGeometry(cells: Cell[], height: number): THREE.BufferGeometry {
@@ -31,5 +31,16 @@ export function glassRimGeometry(cells: Cell[], height: number): THREE.BufferGeo
     }
   }
   const geometry = mergeGeometries(parts)!; parts.forEach(p => p.dispose());
-  return geometry;
+  if (cells.every(c => !c.storesHeat)) return geometry;
+  const triangles = geometry.toNonIndexed(), surface = partitionBodySurface(cells, triangles);
+  triangles.dispose(); geometry.dispose();
+  const groups = surface.groups.filter(g => !cells[g.materialIndex ?? 0].storesHeat), result = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'uv']) {
+    const source = surface.getAttribute(name), values: number[] = [];
+    for (const group of groups) for (let i = group.start; i < group.start + group.count; i++) {
+      for (let j = 0; j < source.itemSize; j++) values.push(source.getComponent(i, j));
+    }
+    result.setAttribute(name, new THREE.Float32BufferAttribute(values, source.itemSize));
+  }
+  surface.dispose(); return result;
 }

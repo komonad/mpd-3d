@@ -12,6 +12,8 @@ import { fitShadowCamera, renderPixelRatio } from './render-quality';
 import { adhesiveTexture } from './surface-materials';
 import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
+import { cameraHalfHeight, demonStatus, followFocus, motionSettled } from './view-state';
+import { exteriorPlainGeometry } from './terrain-geometry';
 import type { Cell, Level, State, Temperature } from './types';
 
 const palette = { wall: '#69747e', neutral: '#89949e', hot: '#d94e28', cold: '#298fcd', demon: '#8998a3', floor: '#b8b8ad', ink: '#263e39' };
@@ -19,7 +21,7 @@ const thermalColor = (t: Temperature) => t === 1 ? palette.hot : t === -1 ? pale
 
 interface DemonVisual {
   group: THREE.Group; target: THREE.Vector3; material: THREE.MeshStandardMaterial; temperature: Temperature;
-  face: THREE.Group; eyes: THREE.Group; faintEyes: THREE.Group; thinking: THREE.Group; arms: THREE.Mesh[]; mouth: THREE.Mesh; faintMouth: THREE.Mesh;
+  face: THREE.Group; eyes: THREE.Group; faintEyes: THREE.Group;
 }
 
 function labelTexture(text: string, dark = false): THREE.CanvasTexture {
@@ -61,11 +63,18 @@ export class GameScene {
   private tilt = 32;
   private azimuth = -9;
   private running = true;
+  private freeView = false;
+  private thinking = false;
+  private motionWaiters: ((settled: boolean) => void)[] = [];
+  private exteriorMaterial?: THREE.MeshPhysicalMaterial;
+  private exteriorCellKey?: number;
   onHover?: (cellKey: number | null) => void;
   onPortalClick?: (target: string) => void;
   onNoteClick?: (text: string) => void;
   onStatus?: (temperature: Temperature, status: string) => void;
   private status = '';
+
+  setThinking(thinking: boolean): void { this.thinking = thinking; }
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -81,9 +90,9 @@ export class GameScene {
     this.scene.environmentIntensity = 0.65;
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true; this.controls.dampingFactor = 0.08;
-    this.controls.enablePan = false; this.controls.minZoom = 0.6; this.controls.maxZoom = 2.2;
-    this.controls.minPolarAngle = 0.02; this.controls.maxPolarAngle = Math.PI / 3;
-    this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+    this.controls.enablePan = this.controls.enableRotate = false; this.controls.minZoom = 0.3; this.controls.maxZoom = 5;
+    this.controls.minPolarAngle = 0.02; this.controls.maxPolarAngle = Math.PI * 0.44;
+    this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.controls.touches.ONE = THREE.TOUCH.ROTATE;
 
     this.scene.add(new THREE.HemisphereLight('#ecf1de', '#597d78', 1.1));
@@ -127,43 +136,32 @@ export class GameScene {
   }
 
   private makeDemon(): DemonVisual {
-    const group = new THREE.Group(), face = new THREE.Group(), eyes = new THREE.Group(), faintEyes = new THREE.Group(), thinking = new THREE.Group(), arms: THREE.Mesh[] = [];
+    const group = new THREE.Group(), face = new THREE.Group(), eyes = new THREE.Group(), faintEyes = new THREE.Group();
     const matte = (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0, envMapIntensity: 0 });
-    const material = matte(palette.demon), ivory = matte('#e3e5df'), ink = matte('#263039');
-    face.position.y = 0.56; group.add(face, thinking); face.add(eyes, faintEyes); eyes.position.y = faintEyes.position.y = -0.56;
+    const material = matte(palette.demon), ink = new THREE.MeshBasicMaterial({ color: '#263039' });
+    face.position.y = 0.56; group.add(face); face.add(eyes, faintEyes);
     this.mesh(new THREE.SphereGeometry(0.48, 40, 32), material, group, 0, 0.56, 0);
-    const mouthCurve = (faint: boolean) => new THREE.CatmullRomCurve3([
-      new THREE.Vector3(-0.14, faint ? 0.45 : 0.47, 0.448),
-      new THREE.Vector3(0, faint ? 0.47 : 0.425, 0.466),
-      new THREE.Vector3(0.14, faint ? 0.45 : 0.47, 0.448),
-    ]);
-    const mouth = this.mesh(new THREE.TubeGeometry(mouthCurve(false), 24, 0.013, 8, false), ink, face, 0, -0.56, 0);
-    const faintMouth = this.mesh(new THREE.TubeGeometry(mouthCurve(true), 24, 0.013, 8, false), ink, face, 0, -0.56, 0);
+    const stroke = (points: number[][], parent: THREE.Group, radius = 0.014) => {
+      const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p as [number, number, number])), false, 'centripetal');
+      const line = this.mesh(new THREE.TubeGeometry(curve, points.length * 12, radius, 8, false), ink, parent); line.castShadow = false; return line;
+    };
+    const facial = (points: number[][], parent: THREE.Group) => stroke(points.map(([x, y]) => [x, y, Math.sqrt(0.48 ** 2 - x ** 2 - y ** 2) + 0.008]), parent);
     for (const side of [-1, 1]) {
-      const horn = this.mesh(new THREE.ConeGeometry(0.09, 0.24, 20), ivory, group, side * 0.30, 1, -0.02); horn.rotation.z = -side * 0.35;
-      this.mesh(new THREE.SphereGeometry(0.09, 20, 12), material, group, side * 0.20, 0.06, 0.09).scale.set(1, 0.65, 1.5);
-      this.mesh(new THREE.SphereGeometry(0.10, 24, 16), ivory, eyes, side * 0.17, 0.69, 0.443).scale.set(1, 1.05, 0.30);
-      this.mesh(new THREE.SphereGeometry(0.045, 20, 12), ink, eyes, side * 0.17, 0.694, 0.473).scale.set(1, 1.2, 0.30);
-      for (const slope of [-1, 1]) {
-        const stroke = this.mesh(new THREE.CapsuleGeometry(0.014, 0.14, 3, 8), ink, faintEyes, side * 0.17, 0.69, 0.467);
-        stroke.rotation.z = slope * Math.PI / 4;
-      }
-      const arm = this.mesh(new THREE.CapsuleGeometry(0.045, 0.17, 4, 12), material, group, side * 0.46, 0.47, 0.02); arm.rotation.z = -side * 0.24; arms.push(arm);
+      facial([[side * 0.095, 0.08], [side * 0.095, 0.23]], eyes);
+      for (const slope of [-1, 1]) facial([[side * 0.12 - 0.06, 0.15 - slope * 0.06], [side * 0.12 + 0.06, 0.15 + slope * 0.06]], faintEyes);
+      const horn = new THREE.CurvePath<THREE.Vector3>();
+      const points = [[side * 0.21, 0.42, 0], [side * 0.4, 0.58, 0], [side * 0.35, 0.32, 0]].map(p => new THREE.Vector3(...p as [number, number, number]));
+      for (let i = 0; i < points.length; i++) horn.add(new THREE.LineCurve3(points[i], points[(i + 1) % points.length]));
+      const outline = this.mesh(new THREE.TubeGeometry(horn, 18, 0.013, 8, true), ink, face); outline.castShadow = false;
+      stroke([[side * 0.43, 0.14, 0], [side * 0.63, 0.2, 0], [side * 0.65, 0.02, 0], [side * 0.63, -0.14, 0], [side * 0.43, -0.04, 0]], face);
     }
-    const tail = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.4, -0.42), new THREE.Vector3(0.32, 0.27, -0.5), new THREE.Vector3(0.5, 0.47, -0.45)]);
-    this.mesh(new THREE.TubeGeometry(tail, 12, 0.02, 8, false), material, group);
-    const tip = this.mesh(new THREE.ConeGeometry(0.06, 0.13, 3), ivory, group, 0.5, 0.49, -0.45); tip.rotation.z = -0.6;
-    this.mesh(new THREE.SphereGeometry(0.17, 24, 16), ivory, thinking, 0.5, 1.36, 0).scale.set(1.65, 0.85, 0.55);
-    this.mesh(new THREE.SphereGeometry(0.037, 12, 8), ivory, thinking, 0.38, 1.17, 0);
-    for (let i = 0; i < 3; i++) this.mesh(new THREE.SphereGeometry(0.025, 12, 8), ink, thinking, 0.39 + i * 0.105, 1.36, 0.087);
-    thinking.visible = faintEyes.visible = faintMouth.visible = false;
-    return { group, target: new THREE.Vector3(), material, temperature: 0, face, eyes, faintEyes, thinking, arms, mouth, faintMouth };
+    stroke([[-0.26, -0.4, 0], [-0.4, -0.47, 0], [-0.48, -0.43, 0], [-0.55, -0.49, 0], [-0.64, -0.45, 0]], face, 0.013);
+    faintEyes.visible = false;
+    return { group, target: new THREE.Vector3(), material, temperature: 0, face, eyes, faintEyes };
   }
 
   private characterFocus(): THREE.Vector3 {
-    const bounds = new THREE.Box3();
-    for (const model of this.demons) bounds.expandByPoint(model.group.localToWorld(new THREE.Vector3(0, 0.56, 0)));
-    return this.demons.length ? bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+    return followFocus(this.demons.map(model => model.group.position));
   }
 
   private paint(material: THREE.MeshPhysicalMaterial, cell: Cell, fixed: boolean): void {
@@ -195,12 +193,13 @@ export class GameScene {
     const glass = cells.filter(c => !c.storesHeat);
     if (glass.length) {
       const rimMaterial = new THREE.MeshPhysicalMaterial({ color: '#5e707c', roughness: 0.24, metalness: 0.2, transparent: true, opacity: 0.72, depthWrite: false });
-      const rim = new THREE.Mesh(glassRimGeometry(glass, height), rimMaterial);
-      rim.position.set(glass[0].x - root.x, 0, glass[0].y - root.y); rim.userData.transmissiveOnly = true; g.add(rim);
+      const rim = new THREE.Mesh(glassRimGeometry(cells, height), rimMaterial);
+      rim.userData.transmissiveOnly = true; g.add(rim);
       g.userData.glassRim = { material: rimMaterial, cellKey: glass[0].key };
     }
     const delta = [[-1, 0], [0, 1], [1, 0], [0, -1]];
-    const layer = bodyLayerGeometry(cells, height);
+    const exterior = fixed && cells.some(c => c.x === 0 || c.y === 0 || c.x === this.level!.width - 1 || c.y === this.level!.height - 1);
+    const layer = bodyLayerGeometry(cells, height, exterior ? this.level : undefined);
     if (layer.getAttribute('position').count) {
       layer.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(layer.getAttribute('position').count * 3), 3));
       g.userData.surfaceLayer = layer;
@@ -284,13 +283,21 @@ export class GameScene {
     }
   }
 
-  load(level: Level, state: State, labels: Map<string, string>): void {
+  load(level: Level, state: State, labels: Map<string, string>, preserveCamera = false): void {
+    this.cancelMotionWaits();
     this.scene.remove(this.board); this.disposeBoard();
     this.board = new THREE.Group(); this.scene.add(this.board); this.level = level;
-    this.controls.maxZoom = level.category === 'world' ? 5 : 2.2;
     this.pieces.clear(); this.targets.clear(); this.rings = []; this.goalLights = []; this.gridMeshes = []; this.noteMarkers = [];
     this.parts = new THREE.Group(); this.board.add(this.parts); this.bodySignature = ''; this.labels = labels; this.shownState = state;
     const w = level.width, h = level.height;
+    this.exteriorMaterial = undefined;
+    const exterior = bodies(state.cells).find(cells => cells.some(c => c.fixed) && cells.some(c => c.x === 0 || c.y === 0 || c.x === w - 1 || c.y === h - 1));
+    this.exteriorCellKey = exterior?.[0].key;
+    if (exterior) {
+      this.exteriorMaterial = this.physical(palette.wall, true);
+      const terrain = this.mesh(exteriorPlainGeometry(w, h), this.exteriorMaterial, this.board);
+      terrain.castShadow = false;
+    }
     const lightDirection = new THREE.Vector3(-9, 16, 7).normalize();
     this.sun.position.copy(lightDirection.multiplyScalar(Math.hypot(w, h) + 20));
     this.sun.updateMatrixWorld(true);
@@ -329,13 +336,17 @@ export class GameScene {
     }
     this.demons = [];
     this.update(state, true);
-    this.controls.target.set(0, 0, 0); this.camera.zoom = 1; this.resetCamera(); this.resize(); this.update(state, true);
+    if (!preserveCamera) this.resetCamera();
+    this.resize();
   }
 
   update(state: State, snap = false, activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle'): void {
     if (!this.level) return;
+    this.cancelMotionWaits();
     const { width: w, height: h } = this.level;
     this.shownState = state; this.activity = activity; this.syncBodies(state, snap);
+    const exteriorCell = state.cells.find(c => c.key === this.exteriorCellKey);
+    if (this.exteriorMaterial && exteriorCell) this.paint(this.exteriorMaterial, exteriorCell, true);
     while (this.demons.length > state.players.length) {
       const model = this.demons.pop()!; this.board.remove(model.group); this.disposeGroup(model.group);
     }
@@ -355,6 +366,20 @@ export class GameScene {
     this.lastStep = performance.now();
   }
 
+  whenSettled(): Promise<boolean> { return new Promise(resolve => { this.motionWaiters.push(resolve); }); }
+  cancelMotionWaits(): void { this.motionWaiters.splice(0).forEach(resolve => resolve(false)); }
+
+  setFreeView(enabled: boolean): void {
+    if (this.freeView === enabled) return;
+    this.stopCameraInertia(); this.freeView = enabled;
+    this.controls.enablePan = this.controls.enableRotate = enabled;
+    if (!enabled) {
+      const focus = this.characterFocus();
+      const offset = this.camera.position.clone().sub(this.controls.target);
+      this.controls.target.copy(focus); this.camera.position.copy(focus).add(offset);
+    }
+  }
+
   setTilt(degrees: number): void { if (this.tilt === degrees) return; this.tilt = degrees; this.resetCamera(); }
   setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { m.visible = visible; }); }
   setQuality(high: boolean): void {
@@ -363,7 +388,15 @@ export class GameScene {
     this.renderer.setPixelRatio(ratio); this.resize();
   }
   setExposure(exposure: number): void { this.renderer.toneMappingExposure = exposure; }
+  private stopCameraInertia(): void {
+    const position = this.camera.position.clone(), target = this.controls.target.clone();
+    const damping = this.controls.enableDamping;
+    this.controls.enableDamping = false; this.controls.update();
+    this.camera.position.copy(position); this.controls.target.copy(target); this.controls.update();
+    this.controls.enableDamping = damping;
+  }
   resetCamera(): void {
+    this.stopCameraInertia();
     const angle = THREE.MathUtils.degToRad(this.tilt), yaw = THREE.MathUtils.degToRad(this.azimuth);
     this.controls.target.copy(this.characterFocus());
     this.camera.position.set(25 * Math.sin(angle) * Math.sin(yaw), 25 * Math.cos(angle), 25 * Math.sin(angle) * Math.cos(yaw)).add(this.controls.target);
@@ -375,9 +408,7 @@ export class GameScene {
     this.renderer.setSize(width, height);
     const aspect = width / height, w = this.level?.width ?? 9, h = this.level?.height ?? 8;
     const yaw = THREE.MathUtils.degToRad(this.azimuth), tilt = THREE.MathUtils.degToRad(this.tilt);
-    const projectedWidth = w * Math.abs(Math.cos(yaw)) + h * Math.abs(Math.sin(yaw));
-    const projectedHeight = (w * Math.abs(Math.sin(yaw)) + h * Math.abs(Math.cos(yaw))) * Math.cos(tilt);
-    const vertical = Math.max(projectedHeight + 2.3, (projectedWidth + 3) / aspect) / 2;
+    const vertical = cameraHalfHeight(w, h, aspect, tilt, yaw);
     this.camera.left = -vertical * aspect; this.camera.right = vertical * aspect; this.camera.top = vertical; this.camera.bottom = -vertical;
     this.camera.updateProjectionMatrix();
     this.renderer.getDrawingBufferSize(this.size);
@@ -405,21 +436,18 @@ export class GameScene {
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
     const moving = this.activity !== 'idle' && now - this.lastStep < 170;
     const active = this.demons.filter(d => d.temperature !== 1), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
-    const thinking = active.length > 0 && (now - this.lastStep > 5000 || this.shownState?.phase === 'cycling');
-    const status = this.activity === 'resolving' ? '热量结算中' : !active.length ? '假死' : thinking ? '思考' : moving && this.activity === 'pushing' ? '推动' : moving ? '移动' : '待机';
-    const text = this.demons.length > 1 ? `${status} · ${active.length}/${this.demons.length} 可行动` : status;
+    const text = demonStatus(active.length, this.demons.length, this.activity, moving, this.thinking, this.shownState?.phase === 'cycling');
     const statusKey = `${temperature}:${text}`;
     if (statusKey !== this.status) { this.status = statusKey; this.onStatus?.(temperature, text); }
     for (const model of this.demons) {
-      const hot = model.temperature === 1, idleThought = !hot && thinking;
+      const hot = model.temperature === 1, inThought = !hot && this.thinking;
       model.group.position.lerp(model.target, factor);
       model.group.rotation.y = Math.atan2(this.camera.position.x - model.group.position.x, this.camera.position.z - model.group.position.z);
-      model.thinking.visible = idleThought; model.eyes.visible = model.mouth.visible = !hot; model.faintEyes.visible = model.faintMouth.visible = hot;
-      model.group.position.y = (hot ? 0.16 : 0.055) + (!hot && moving ? Math.sin((now - this.lastStep) / 170 * Math.PI) * 0.06 : Math.sin(now * 0.0025) * 0.007);
-      model.group.rotation.x = THREE.MathUtils.lerp(model.group.rotation.x, hot ? -0.65 : this.activity === 'pushing' && moving ? 0.22 : 0, factor);
-      model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, hot ? 0.35 : idleThought ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
+      model.eyes.visible = !hot; model.faintEyes.visible = hot;
+      model.group.position.y = 0.055 + (!hot && moving ? Math.sin((now - this.lastStep) / 170 * Math.PI) * 0.06 : 0);
+      model.group.rotation.x = THREE.MathUtils.lerp(model.group.rotation.x, this.activity === 'pushing' && moving && !hot ? 0.22 : 0, factor);
+      model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, inThought ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
       model.face.lookAt(this.camera.position);
-      model.arms.forEach((arm, i) => { const side = i ? 1 : -1; arm.rotation.z = idleThought && i ? -1.7 : this.activity === 'pushing' && moving ? -side * 0.7 : -side * 0.24; arm.rotation.x = moving && !hot ? Math.sin(now * 0.025 + i * Math.PI) * 0.35 : 0; });
     }
     this.pistonRods.forEach(p => {
       p.rod.scale.y = THREE.MathUtils.lerp(p.rod.scale.y, p.target, factor);
@@ -427,10 +455,18 @@ export class GameScene {
       p.rod.position.x += d[0] * (0.35 + p.rod.scale.y * 0.4); p.rod.position.z += d[1] * (0.35 + p.rod.scale.y * 0.4);
     });
     this.rings.forEach(r => { const m = r.material as THREE.MeshStandardMaterial; m.emissiveIntensity = 0.95 + Math.sin(now * 0.002) * 0.22; });
-    const focus = this.characterFocus();
-    this.camera.position.add(focus.clone().sub(this.controls.target)); this.controls.target.copy(focus);
+    if (!this.freeView) {
+      const focus = this.characterFocus();
+      this.camera.position.add(focus.clone().sub(this.controls.target)); this.controls.target.copy(focus);
+    }
     this.controls.update();
     this.composer.render();
+    if (this.motionWaiters.length) {
+      const distances = [...this.pieces].map(([key, group]) => group.position.distanceTo(this.targets.get(key)!));
+      distances.push(...this.demons.map(d => Math.hypot(d.group.position.x - d.target.x, d.group.position.z - d.target.z)));
+      distances.push(...this.pistonRods.map(p => Math.abs(p.rod.scale.y - p.target)));
+      if (motionSettled(now - this.lastStep, distances)) this.motionWaiters.splice(0).forEach(resolve => resolve(true));
+    }
   }
   private disposeBoard(): void {
     this.disposeGroup(this.board);

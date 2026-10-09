@@ -17,3 +17,7 @@ dialog{width:440px;max-width:calc(100vw - 30px);padding:30px;border:1px solid #5
 @media(max-width:760px){.level-badge{display:none}}
 
 .world-picker-label{font-size:10px;color:#a9b6b7;margin-bottom:7px}#world-picker{color:#d5e0dc;background:#243632;border:1px solid #4b5d55;border-radius:7px;padding:9px 8px;width:100%;font:inherit;font-size:11px;margin-bottom:18px;cursor:pointer}.sidebar h1{margin-top:12px}.demon-status[data-temperature="2"]{color:#82cf9f}.demon-status[data-temperature="2"] i{background:#55a779}
+
+.camera-controls{display:flex;align-items:center;gap:6px}.camera-button[aria-pressed="true"]{background:#aab8c329;color:#d4dde3}.camera-button kbd{font-size:8px;padding:2px 4px;color:#9eafb8;border-color:#879aa340}@media(max-width:760px){.camera-controls{gap:2px}.camera-button kbd{display:none}}
+
+@media(min-width:761px){.scene-tag{bottom:138px}.legend{bottom:137px}}

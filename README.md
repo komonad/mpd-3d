@@ -29,8 +29,10 @@ The importer reads the installation without changing it. The generated `public/l
 | Reset level | R |
 | Enter adjacent portal | E / Enter / Space |
 | Return from level or hint | Q / Backspace |
-| Hint | H |
-| Rotate / zoom camera | Right drag / wheel |
+| Enter hint scene | H |
+| Toggle free camera | F / free-view button |
+| Rotate / pan in free view | Right drag / middle drag |
+| Zoom camera | Wheel |
 
 Progress, discovered shortcuts, cached room states, and entry baselines are saved in browser local storage. The world selector opens the next supported world after its predecessor's map or all main puzzles are completed. The level browser provides direct access to puzzles within unlocked worlds. World-map entrances transform when their corresponding levels are completed. Undo includes resets, scene transitions, and completion progress within the current browser session.
 
@@ -39,11 +41,11 @@ Progress, discovered shortcuts, cached room states, and entry baselines are save
 - World 1: 20 main puzzles, 7 extra puzzles, world map, and hint scenes (65 imported scenes).
 - Atomic grid movement, welded multi-cell rigid bodies, fixed anchors, heat conduction, partial insulation, outside temperature, demon heat conduction, goal validation, portal transformations.
 - Eight independent laboratory scenes cover materials, transparent conduction, adhesive bodies, anchored thermal pistons, transient overheating, demon poses, simultaneous movement, and retentive temperatures. Laboratories do not count toward world completion.
-- Each demon has a matte spherical body matching the block width, with horns, eyes, a line mouth, limbs, and a tail. Its body changes color with temperature. Facial features face the camera. The camera follows the center of all demons, including frozen ones. Fixed bodies mark every contour corner with metal fasteners. Overheating produces a collapsed pose; idle thought and movement have separate animations. Piston turns display movement and heat phases before presenting the final state. Undo and reset can interrupt this playback.
+- Each demon has a matte spherical body matching the block width, with line horns, wings, a tail, and vertical eyes. Overheating changes the eyes to crosses and preserves the standing height and orientation. Its body changes color with temperature. Facial features face the camera. The camera follows the ground-plane center of all demons, including frozen ones, at a constant height. Large maps use a bounded local view. Free view allows rotation and panning; level resets preserve the camera. Fixed bodies mark every contour corner with metal fasteners, and boundary walls extend into a flat exterior plain. Overheating appears in an inline status. Hint scenes activate thinking; Q restores the source scene. Piston turns display movement and heat phases before presenting the final state. Undo and reset can interrupt this playback.
 - Anchored laboratory pistons expand when hot, retract when cold, and gain heat when manually compressed. Expansion can push cells and demons. Completion and movement locks are evaluated after automatic thermal actions settle.
 - Worlds 2 and 3: complete maps, main and extra puzzles, nested rooms, and localized hint scenes. The catalogue contains 227 scenes across the first three worlds.
 - Room layouts persist until an exit. Each entry updates the reset baseline. Shortcuts require discovery and use the canonical parent path for exits. An exit resets all entered rooms, emits demons on their recorded entry sides, and sets the parent outside temperature to neutral. Entering inherits the portal temperature as the child's outside reservoir. Transitions do not perform heat balance. Spawn collisions destroy blocks and expose adhesive faces on broken welds.
-- Multiple demons move in one turn, push shared rigid bodies once, and keep separate thermal states. Entry from several sides emits several demons on exit. Non-entering demons remain in their room. Completion automatically returns to the parent.
+- Multiple demons move in one turn, push shared rigid bodies once, and keep separate thermal states. Entry from several sides emits several demons on exit. Non-entering demons remain in their room. Completion returns to the parent after the final movement animation settles.
 - The fourth temperature propagates through neutral heat balances. Retentive objects preserve their state across resets; occupied initial positions suppress other objects until they become free.
 
 Worlds 4–9 remain locked while the original movable-boundary piston model, inventories, nested depth, and mechanical priorities are integrated. Laboratory pistons use an anchored housing and a single head. Cross-world meta puzzles and the outer hub are outside the playable catalogue. Mechanics are reconstructed from local level data and the game's built-in explanations; parity with the original executable needs further side-by-side validation.

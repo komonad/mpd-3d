@@ -53,24 +53,24 @@ app.innerHTML = `
       <div class="dpad" aria-label="触屏方向键"><button data-dir="3" aria-label="向上">${icon('up')}</button><button data-dir="0" aria-label="向左">${icon('left')}</button><i>✦</i><button data-dir="2" aria-label="向右">${icon('right')}</button><button data-dir="1" aria-label="向下">${icon('down')}</button></div>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <div class="state-message" id="state-message" hidden></div>
-      <div class="stage-toolbar"><div class="history-controls"><button id="undo-button" title="撤销 Z / U" aria-label="撤销">${icon('undo')}<span>撤销</span><kbd>Z</kbd></button><button id="redo-button" title="重做 Y" aria-label="重做">${icon('redo')}<span>重做</span><kbd>Y</kbd></button><i></i><button id="reset-button" title="重置 R" aria-label="重置关卡">${icon('reset')}<span>重置</span><kbd>R</kbd></button></div><button id="camera-button" class="camera-button" title="重置镜头">${icon('camera')}<span>重置镜头</span></button></div>
-      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide">镜头跟随 · 右键旋转 · 滚轮缩放</span><button id="hint-button">提示 ${icon('arrow')}</button></footer>
+      <div class="stage-toolbar"><div class="history-controls"><button id="undo-button" title="撤销 Z / U" aria-label="撤销">${icon('undo')}<span>撤销</span><kbd>Z</kbd></button><button id="redo-button" title="重做 Y" aria-label="重做">${icon('redo')}<span>重做</span><kbd>Y</kbd></button><i></i><button id="reset-button" title="重置 R" aria-label="重置关卡">${icon('reset')}<span>重置</span><kbd>R</kbd></button></div><div class="camera-controls"><button id="free-view-button" class="camera-button" title="切换自由视角 F" aria-label="自由视角" aria-pressed="false">${icon('map')}<span>自由视角</span><kbd>F</kbd></button><button id="camera-button" class="camera-button" title="重置镜头">${icon('camera')}<span>重置镜头</span></button></div></div>
+      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 滚轮缩放 · F 自由视角</span><button id="hint-button">提示 ${icon('arrow')}</button></footer>
     </section>
   </main>
   <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>每一次推动，<br>都会改变温度。</h2><p class="dialog-intro">把储存热量的方块推到终点，并让小妖保持常温或低温。</p><div class="rule-row"><span class="rule-icon">↑</span><div><h3>热量会传递</h3><p>相邻且没有隔热边的方块交换热量。高温数量更多，整组变热；低温更多，整组变冷；数量相等，变为常温。</p></div></div><div class="rule-row"><span class="rule-icon demon-icon">••</span><div><h3>小妖也是导体</h3><p>小妖能连接两边的方块，但自身不储存热量。高温时进入假死姿态；一轮活塞结算结束后仍高温，才会停止移动。按 Z 可撤销整轮。</p></div></div><div class="rule-row"><span class="rule-icon">═</span><div><h3>观察每一条边</h3><p>米白色侧面隔热，深浅棋盘格侧面会粘住方块；金属钉表示固定。连接块没有内部缝隙，作为一个刚体移动。</p></div></div><div class="dialog-keyboard"><span><kbd>E</kbd>进入关卡</span><span><kbd>Q</kbd>返回世界</span><span><kbd>H</kbd>提示关卡</span></div><p class="scope-note">世界按进度开放：完成当前世界地图或全部主线，即可进入下一世界。入口与出口不立即结算热量，快捷入口在抵达目标关卡后解锁。按 Z 可撤销移动、重置和关卡切换。</p><button class="primary-button" data-close>开始探索 ${icon('right')}</button></dialog>
-  <dialog id="settings-dialog"><div class="dialog-heading"><span class="eyebrow">MAKE IT YOURS</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>光与视角</h2><p class="dialog-intro">找到看得清，也看得舒服的角度。</p><label class="setting-row" for="tilt-input"><span><b>镜头倾斜</b><small>从正俯视方向向下倾斜</small></span><output id="tilt-output">32°</output></label><input id="tilt-input" type="range" min="0" max="50" value="32" step="1"/><label class="setting-row" for="light-input"><span><b>曝光</b><small>材质与灯光的明亮程度</small></span><output id="light-output">1.05</output></label><input id="light-input" type="range" min="0.65" max="1.65" value="1.05" step="0.01"/><label class="setting-row toggle-row"><span><b>精细光影</b><small>高分辨率抗锯齿与环境遮蔽</small></span><input type="checkbox" id="quality-input" checked/></label><label class="setting-row toggle-row"><span><b>辅助网格</b><small>清晰显示格子边界</small></span><input type="checkbox" id="grid-input"/></label><button class="primary-button" id="settings-reset">恢复默认画面 ${icon('reset')}</button><p class="scope-note">Three.js · PBR 材质 · 正交镜头<br>关卡由本机游戏安装目录导入。</p></dialog>
+  <dialog id="settings-dialog"><div class="dialog-heading"><span class="eyebrow">MAKE IT YOURS</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>光与视角</h2><p class="dialog-intro">找到看得清，也看得舒服的角度。</p><label class="setting-row" for="tilt-input"><span><b>镜头倾斜</b><small>从正俯视方向向下倾斜</small></span><output id="tilt-output">32°</output></label><input id="tilt-input" type="range" min="0" max="50" value="32" step="1"/><label class="setting-row" for="light-input"><span><b>曝光</b><small>材质与灯光的明亮程度</small></span><output id="light-output">1.05</output></label><input id="light-input" type="range" min="0.65" max="1.65" value="1.05" step="0.01"/><label class="setting-row toggle-row"><span><b>精细光影</b><small>高分辨率抗锯齿与环境遮蔽</small></span><input type="checkbox" id="quality-input" checked/></label><label class="setting-row toggle-row"><span><b>辅助网格</b><small>清晰显示格子边界</small></span><input type="checkbox" id="grid-input"/></label><label class="setting-row toggle-row"><span><b>自由视角</b><small>右键旋转、中键平移，关闭后跟随小妖</small></span><input type="checkbox" id="free-view-input"/></label><button class="primary-button" id="settings-reset">恢复默认画面 ${icon('reset')}</button><p class="scope-note">Three.js · PBR 材质 · 正交镜头<br>关卡由本机游戏安装目录导入。</p></dialog>
   <dialog id="hint-dialog"><div class="dialog-heading"><span class="eyebrow">A LITTLE GUIDANCE</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>慢一点，看清热量。</h2><p class="dialog-intro" id="hint-text"></p><div class="hint-art"><span class="hint-cube hot">↑</span><span>＋</span><span class="hint-cube cold">↓</span><span>→</span><span class="hint-cube neutral">·</span></div><p>在提示关卡中实验，按 Q 返回。提示场景的完成状态不计入探索进度。</p><button class="primary-button" id="start-hint-button">进入原版提示关卡 ${icon('right')}</button></dialog>
 `;
 
 type Snapshot = Session;
-interface Preferences { tilt: number; light: number; quality: boolean; grid: boolean; sound: boolean }
+interface Preferences { tilt: number; light: number; quality: boolean; grid: boolean; sound: boolean; freeView: boolean }
 const storageKey = 'maxwell3d-save-v2';
 const preferencesKey = 'maxwell3d-preferences-v1';
 let data: Dataset, level: Level, state: State, scene: GameScene;
 let session: Session, solved = new Set<string>(), undoHistory: Snapshot[] = [], redoHistory: Snapshot[] = [];
 let selectedWorld: string;
 let category: 'main' | 'extra' | 'lab' = 'main';
-let preferences: Preferences = { tilt: 32, light: 1.05, quality: true, grid: false, sound: true };
+let preferences: Preferences = { tilt: 32, light: 1.05, quality: true, grid: false, sound: true, freeView: false };
 let levelsById: Map<string, Level>, labels: Map<string, string>;
 let toastTimer: ReturnType<typeof setTimeout>, audio: AudioContext | undefined;
 let inputTime = 0;
@@ -135,20 +135,19 @@ function renderHud(): void {
   const portals = portalCandidates(data, session);
   $('#context-action').hidden = !portals.length || state.frozen || state.solved || state.phase === 'cycling';
   $('#portal-label').textContent = portals.length ? labels.get(portals[0].portal!.target) ?? '未知关卡' : '';
-  const message = $('#state-message'); message.hidden = resolving || (!state.solved && !state.frozen && state.phase !== 'cycling');
+  const message = $('#state-message'); message.hidden = resolving || (!state.solved && state.phase !== 'cycling');
   message.className = 'state-message ' + (state.solved ? 'success' : 'frozen');
   if (state.solved) message.innerHTML = `<span class="message-symbol">${icon('check')}</span><small>EQUILIBRIUM REACHED</small><h3>找到平衡。</h3><p>${state.moves} 步 · ${state.pushes} 次推动</p><div>${canExit() ? '<button id="finish-return" class="primary-button">返回 ' + (session.hints.length ? '关卡' : '上层场景') + icon('right') + '</button>' : '<button id="next-level" class="primary-button">下一关' + icon('right') + '</button><button id="finish-map" class="secondary-button">世界地图</button>'}</div>`;
   else if (state.phase === 'cycling') message.innerHTML = `<h3>循环结算中</h3><p>活塞进入循环，按 Z 撤销或 R 重置。</p><button id="frozen-undo" class="primary-button">撤销一步 <kbd>Z</kbd></button>`;
-  else if (state.frozen) message.innerHTML = `<h3>小妖处于假死状态</h3><p>高温使小妖暂时无法移动。</p><button id="frozen-undo" class="primary-button">撤销一步 <kbd>Z</kbd></button>`;
 }
-function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { recordState(session, state, level); solved = new Set(session.solved); scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
-function cancelPlayback(): void { playback++; resolving = false; }
-function load(id: string, outside: Temperature = 0, existing?: State): void {
+function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { recordState(session, state, level); solved = new Set(session.solved); scene.setThinking(session.hints.length > 0); scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
+function cancelPlayback(): void { playback++; resolving = false; scene.cancelMotionWaits(); }
+function load(id: string, outside: Temperature = 0, existing?: State, preserveCamera = false): void {
   const found = levelsById.get(id); if (!found) { notify('这个入口通向当前版本范围之外的场景。'); return; }
   cancelPlayback(); level = found; state = existing ? cloneState(existing) : initialState(level, solved, outside);
   if (level.worldId) selectedWorld = level.worldId;
   if (level.category === 'extra') category = 'extra'; else if (level.category === 'main' || level.category === 'world') category = 'main'; else if (level.category === 'lab') category = 'lab';
-  scene.load(level, state, labels); display(true); $('#hover-info').hidden = true;
+  scene.load(level, state, labels, preserveCamera); display(true); $('#hover-info').hidden = true;
   document.body.classList.remove('sidebar-open');
 }
 function selectLevel(id: string): void {
@@ -162,23 +161,31 @@ async function step(direction: Direction): Promise<void> {
   remember(); const pushing = next.pushes > state.pushes; state = next;
   recordState(session, state, level); solved = new Set(session.solved);
   playTone(state.solved ? 'solve' : pushing ? 'push' : 'move');
+  const token = ++playback;
+  resolving = state.solved;
   if (next.pistons?.length && next.turnFrames && next.turnFrames.length > 2) {
-    resolving = true; const token = ++playback; renderHud(); renderLevels(); save();
+    resolving = true; renderHud(); renderLevels(); save();
     const frames = next.turnFrames.slice(0, 16);
     for (const frame of frames) {
       if (token !== playback) return;
       scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving');
       await new Promise(resolve => setTimeout(resolve, frame.phase === 'heat' ? 380 : 200));
     }
-    if (token !== playback) return; resolving = false;
+    if (token !== playback) return; resolving = state.solved;
   }
   display(false, pushing ? 'pushing' : 'walking');
+  if (state.solved) {
+    const settled = await scene.whenSettled();
+    if (!settled || token !== playback) return;
+    resolving = false;
+    renderHud();
+  }
   if (state.solved && canExit() && !session.hints.length) { const next = exitLevel(data, session); if (next) { session = next; load(next.current.levelId, next.current.outside, next.current); notify('关卡完成，已返回上层场景。'); } }
 }
-function restore(s: Snapshot): void { session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current); }
+function restore(s: Snapshot): void { const sameLevel = level.id === s.current.levelId; session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current, sameLevel); }
 function undo(): void { const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
 function redo(): void { const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
-function reset(): void { remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current); notify('关卡已重置，按 Z 可以撤销。'); }
+function reset(): void { remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
 function enter(targetId?: string): void {
   if (resolving) return;
   const next = enterPortal(data, session, targetId);
@@ -189,6 +196,7 @@ function enter(targetId?: string): void {
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
 function exit(): void {
+  if (resolving && state.solved) return;
   if (resolving) cancelPlayback();
   const next = exitLevel(data, session);
   if (!next) { if (level.category !== 'world') selectLevel(selectedWorld); return; }
@@ -203,17 +211,22 @@ function openHint(): void {
   $('#hint-text').textContent = descriptions; $('#start-hint-button').toggleAttribute('disabled', !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal();
 }
 function startHint(): void {
-  if (!level.hintId) return; const next = enterHint(data, session, level.hintId); if (!next) return;
+  if (resolving || !level.hintId) return; const next = enterHint(data, session, level.hintId); if (!next) return;
   $<HTMLDialogElement>('#hint-dialog').close(); remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
+function requestHint(): void { if (!resolving) level.hintId ? startHint() : openHint(); }
 function applyPreferences(): void {
-  scene.setTilt(preferences.tilt); scene.setExposure(preferences.light); scene.setQuality(preferences.quality); scene.setGrid(preferences.grid);
+  scene.setTilt(preferences.tilt); scene.setExposure(preferences.light); scene.setQuality(preferences.quality); scene.setGrid(preferences.grid); scene.setFreeView(preferences.freeView);
   $('#tilt-label').textContent = `${preferences.tilt}°`; $('#tilt-output').textContent = `${preferences.tilt}°`; $('#light-output').textContent = preferences.light.toFixed(2);
   $<HTMLInputElement>('#tilt-input').value = String(preferences.tilt); $<HTMLInputElement>('#light-input').value = String(preferences.light);
   $<HTMLInputElement>('#quality-input').checked = preferences.quality; $<HTMLInputElement>('#grid-input').checked = preferences.grid;
+  $<HTMLInputElement>('#free-view-input').checked = preferences.freeView;
+  $('#free-view-button').setAttribute('aria-pressed', String(preferences.freeView));
+  $('#camera-guide').textContent = preferences.freeView ? '自由视角 · 右键旋转 · 中键平移 · 滚轮缩放' : '角色跟随 · 滚轮缩放 · F 自由视角';
   $('#sound-button').innerHTML = icon(preferences.sound ? 'sound' : 'mute'); $('#sound-button').setAttribute('aria-label', preferences.sound ? '关闭音效' : '开启音效');
   try { localStorage.setItem(preferencesKey, JSON.stringify(preferences)); } catch { /* Preferences can remain in memory. */ }
 }
+function toggleFreeView(): void { preferences.freeView = !preferences.freeView; applyPreferences(); }
 function bind(): void {
   $('#level-list').addEventListener('click', e => { const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-level]'); if (button) selectLevel(button.dataset.level!); });
   $('#main-tab').onclick = () => { category = 'main'; renderLevels(); }; $('#extra-tab').onclick = () => { category = 'extra'; renderLevels(); };
@@ -223,9 +236,10 @@ function bind(): void {
   $('.brand').onclick = e => { e.preventDefault(); selectLevel(data.levels.find(l => l.category === 'main')!.id); };
   $('#undo-button').onclick = undo; $('#redo-button').onclick = redo; $('#reset-button').onclick = reset;
   $('#camera-button').onclick = () => { scene.resetCamera(); notify('镜头已回到默认位置。'); };
+  $('#free-view-button').onclick = toggleFreeView;
   $('#help-button').onclick = () => $<HTMLDialogElement>('#help-dialog').showModal(); $('#settings-button').onclick = () => $<HTMLDialogElement>('#settings-dialog').showModal();
   $('#sound-button').onclick = () => { preferences.sound = !preferences.sound; applyPreferences(); };
-  $('#hint-button').onclick = openHint; $('#start-hint-button').onclick = startHint; $('#enter-button').onclick = () => enter();
+  $('#hint-button').onclick = requestHint; $('#start-hint-button').onclick = startHint; $('#enter-button').onclick = () => enter();
   $('#menu-button').onclick = () => document.body.classList.toggle('sidebar-open');
   $('#state-message').addEventListener('click', e => {
     const id = (e.target as HTMLElement).closest('button')?.id;
@@ -238,19 +252,20 @@ function bind(): void {
   $('#light-input').oninput = () => { preferences.light = Number($<HTMLInputElement>('#light-input').value); applyPreferences(); };
   $('#quality-input').onchange = () => { preferences.quality = $<HTMLInputElement>('#quality-input').checked; applyPreferences(); };
   $('#grid-input').onchange = () => { preferences.grid = $<HTMLInputElement>('#grid-input').checked; applyPreferences(); };
-  $('#settings-reset').onclick = () => { preferences = { ...preferences, tilt: 32, light: 1.05, quality: true, grid: false }; applyPreferences(); };
+  $('#free-view-input').onchange = () => { preferences.freeView = $<HTMLInputElement>('#free-view-input').checked; applyPreferences(); };
+  $('#settings-reset').onclick = () => { preferences = { ...preferences, tilt: 32, light: 1.05, quality: true, grid: false, freeView: false }; applyPreferences(); scene.resetCamera(); };
   document.addEventListener('keydown', e => {
     if (document.querySelector('dialog[open]') || e.ctrlKey || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select')) return;
     const key = e.key.toLowerCase(); const keys: Record<string, Direction> = { arrowleft: 0, a: 0, arrowdown: 1, s: 1, arrowright: 2, d: 2, arrowup: 3, w: 3 };
     if (key in keys) { e.preventDefault(); step(keys[key]); }
     else if (key === 'z' || key === 'u') { e.preventDefault(); undo(); }
-    else if (key === 'y') redo(); else if (key === 'r') reset(); else if (key === 'e' || key === 'enter' || key === ' ') { e.preventDefault(); if (state.solved) canExit() ? exit() : nextLevel(); else enter(); }
-    else if (key === 'q' || key === 'backspace') { e.preventDefault(); exit(); } else if (key === 'h') openHint();
+    else if (key === 'y') redo(); else if (key === 'r') reset(); else if (key === 'f') toggleFreeView(); else if (key === 'e' || key === 'enter' || key === ' ') { e.preventDefault(); if (!resolving) { if (state.solved) canExit() ? exit() : nextLevel(); else enter(); } }
+    else if (key === 'q' || key === 'backspace') { e.preventDefault(); exit(); } else if (key === 'h') requestHint();
   });
   scene.onPortalClick = target => enter(target);
   scene.onStatus = (temperature, status) => {
     const element = $('#demon-status'); element.dataset.temperature = String(temperature);
-    $('#demon-status span').textContent = `小妖 · ${temperature === 1 ? '高温' : temperature === -1 ? '低温' : temperature === 2 ? '第4温度' : '常温'} · ${status}`;
+    $('#demon-status span').textContent = `小妖 · ${temperature === 1 ? '高温' : temperature === -1 ? '低温' : temperature === 2 ? '第4温度' : '常温'} · ${status}${status.startsWith('假死') ? ' · Z 撤销 / R 重置' : ''}`;
   };
   scene.onNoteClick = text => { $('#hint-text').textContent = text; $('#start-hint-button').toggleAttribute('disabled', !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal(); };
   scene.onHover = key => {
