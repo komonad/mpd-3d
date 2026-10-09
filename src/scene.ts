@@ -27,7 +27,7 @@ interface DemonVisual {
 function labelTexture(text: string, dark = false): THREE.CanvasTexture {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
   const ctx = canvas.getContext('2d')!; ctx.font = '600 45px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = dark ? '#f0ebdc' : '#4b453c'; ctx.fillText(text, 64, 66);
+  ctx.fillStyle = dark ? '#ffffff' : '#292929'; ctx.fillText(text, 64, 66);
   return new THREE.CanvasTexture(canvas);
 }
 
@@ -82,7 +82,7 @@ export class GameScene {
     this.adhesiveMaterial.map!.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
-    this.renderer.setClearColor('#f7f3ea', 0);
+    this.renderer.setClearColor('#ffffff', 0);
     this.renderer.domElement.setAttribute('aria-label', '三维关卡棋盘，使用方向键或 WASD 移动');
     this.host.append(this.renderer.domElement);
     const pmrem = new THREE.PMREMGenerator(this.renderer), environment = new RoomEnvironment();
