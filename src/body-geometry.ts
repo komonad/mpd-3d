@@ -27,20 +27,21 @@ export function bodyLayerGeometry(cells: Cell[], height: number): THREE.BufferGe
     }
     loops.push(loop);
   }
-  const vertices: number[] = [], uv: number[] = [], geometry = new THREE.BufferGeometry();
+  const surfaces = [{ vertices: [] as number[], uv: [] as number[] }, { vertices: [] as number[], uv: [] as number[] }];
+  const geometry = new THREE.BufferGeometry();
   const lo = 0.055, hi = lo + height + 0.02;
   const vertex = (p: Point, y: number) => [p.x - root.x - 0.5, y, p.y - root.y - 0.5];
-  function quad(points: number[][], kind: number, top = false): void {
+  function quad(points: number[][], coordinates: number[][], kind: number): void {
     if (kind !== 2 && kind !== 3) return;
-    const start = vertices.length / 3;
-    for (const i of [0, 1, 2, 0, 2, 3]) { vertices.push(...points[i]); uv.push(points[i][0] + points[i][2], top ? points[i][2] : points[i][1]); }
-    geometry.addGroup(start, 6, kind - 2);
+    const surface = surfaces[kind - 2];
+    for (const i of [0, 1, 2, 0, 2, 3]) { surface.vertices.push(...points[i]); surface.uv.push(...coordinates[i]); }
   }
-  function strip(o: Point, i: Point, n: Point, e: Point, kind: number): void {
-    quad([vertex(o, hi), vertex(i, hi), vertex(n, hi), vertex(e, hi)], kind, true);
-    quad([vertex(o, lo), vertex(o, hi), vertex(e, hi), vertex(e, lo)], kind);
-    quad([vertex(n, lo), vertex(n, hi), vertex(i, hi), vertex(i, lo)], kind);
-    quad([vertex(e, lo), vertex(n, lo), vertex(i, lo), vertex(o, lo)], kind, true);
+  function strip(o: Point, i: Point, n: Point, e: Point, kind: number, u: number, v: number): void {
+    const depth = 3, width = 0.1 / (hi - lo) * depth;
+    quad([vertex(o, hi), vertex(i, hi), vertex(n, hi), vertex(e, hi)], [[u, 0], [u, width], [v, width], [v, 0]], kind);
+    quad([vertex(o, lo), vertex(o, hi), vertex(e, hi), vertex(e, lo)], [[u, depth], [u, 0], [v, 0], [v, depth]], kind);
+    quad([vertex(n, lo), vertex(n, hi), vertex(i, hi), vertex(i, lo)], [[v, depth + width], [v, width], [u, width], [u, depth + width]], kind);
+    quad([vertex(e, lo), vertex(n, lo), vertex(i, lo), vertex(o, lo)], [[v, 0], [v, width], [u, width], [u, 0]], kind);
   }
   for (const loop of loops) {
     const curves = loop.map((s, j) => {
@@ -55,16 +56,31 @@ export function bodyLayerGeometry(cells: Cell[], height: number): THREE.BufferGe
       };
       return { outer: curve(0.01, turn > 0 ? 0.16 : 0.06), inner: curve(0.11, turn > 0 ? 0.06 : 0.16) };
     });
+    const strips: { o: Point; i: Point; n: Point; e: Point; kind: number; length: number }[] = [];
+    const append = (o: Point, i: Point, n: Point, e: Point, kind: number) => {
+      strips.push({ o, i, n, e, kind, length: Math.hypot(e.x + n.x - o.x - i.x, e.y + n.y - o.y - i.y) / 2 });
+    };
     curves.forEach((c, j) => {
       const next = curves[(j + 1) % curves.length], prev = loop[(j + loop.length - 1) % loop.length], s = loop[j];
-      strip(c.outer.at(-1)!, c.inner.at(-1)!, next.inner[0], next.outer[0], s.kind);
-      for (let k = 0; k < c.outer.length - 1; k++) strip(c.outer[k], c.inner[k], c.inner[k + 1], c.outer[k + 1], k < 4 ? prev.kind : s.kind);
+      for (let k = 0; k < c.outer.length - 1; k++) append(c.outer[k], c.inner[k], c.inner[k + 1], c.outer[k + 1], k < 4 ? prev.kind : s.kind);
+      append(c.outer.at(-1)!, c.inner.at(-1)!, next.inner[0], next.outer[0], s.kind);
       if (prev.kind !== s.kind && c.outer.length > 1) {
         const o = c.outer[4], i = c.inner[4], kind = s.kind === 2 || s.kind === 3 ? s.kind : prev.kind;
-        quad([vertex(o, lo), vertex(i, lo), vertex(i, hi), vertex(o, hi)], kind);
+        quad([vertex(o, lo), vertex(i, lo), vertex(i, hi), vertex(o, hi)], [[0, 2], [0.2, 2], [0.2, 0], [0, 0]], kind);
       }
     });
+    const perimeter = strips.reduce((sum, s) => sum + s.length, 0), repeats = loop.length * 3;
+    let distance = 0;
+    for (const s of strips) {
+      const u = distance / perimeter * repeats; distance += s.length;
+      strip(s.o, s.i, s.n, s.e, s.kind, u, distance / perimeter * repeats);
+    }
   }
+  const vertices: number[] = [], uv: number[] = [];
+  surfaces.forEach((s, index) => {
+    if (s.vertices.length) geometry.addGroup(vertices.length / 3, s.vertices.length / 3, index);
+    vertices.push(...s.vertices); uv.push(...s.uv);
+  });
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geometry.computeVertexNormals();
   return geometry;
 }
@@ -141,26 +157,36 @@ export function bodyGeometry(cells: Cell[], height: number): THREE.BufferGeometr
   return geometry;
 }
 
+export function bodySurfaceGeometries(cells: Cell[], height: number): { solid?: THREE.BufferGeometry; glass?: THREE.BufferGeometry } {
+  const solid = bodyGeometry(cells, height);
+  if (cells.every(c => c.storesHeat)) return { solid };
+  if (cells.every(c => !c.storesHeat)) return { glass: solid };
+  const glass = solid.clone(), groups = solid.groups;
+  solid.groups = groups.filter(g => cells[g.materialIndex ?? 0].storesHeat);
+  glass.groups = groups.filter(g => !cells[g.materialIndex ?? 0].storesHeat);
+  return { solid, glass };
+}
+
 // Mixed thermal bodies retain per-cell materials without adding internal walls.
 function mixedSurface(cells: Cell[], height: number): THREE.BufferGeometry {
   const root = cells[0], occupied = new Set(cells.map(key));
   const vertices: number[] = [], normals: number[] = [], uv: number[] = [];
   const geometry = new THREE.BufferGeometry();
-  function quad(points: number[][], normal: number[], material: number): void {
-    const start = vertices.length / 3;
+  function quad(points: number[][], normal: number[]): void {
     for (const i of [0, 1, 2, 0, 2, 3]) { vertices.push(...points[i]); normals.push(...normal); uv.push(normal[0] ? points[i][2] : points[i][0], normal[1] ? points[i][2] : points[i][1]); }
-    geometry.addGroup(start, 6, material);
   }
   cells.forEach((c, index) => {
+    const start = vertices.length / 3;
     const x = c.x - root.x, z = c.y - root.y;
     const a = x - 0.5 + (occupied.has(`${c.x - 1},${c.y}`) ? 0 : 0.02), b = x + 0.5 - (occupied.has(`${c.x + 1},${c.y}`) ? 0 : 0.02);
     const f = z - 0.5 + (occupied.has(`${c.x},${c.y - 1}`) ? 0 : 0.02), g = z + 0.5 - (occupied.has(`${c.x},${c.y + 1}`) ? 0 : 0.02), lo = 0.055, hi = lo + height;
-    quad([[a, hi, f], [a, hi, g], [b, hi, g], [b, hi, f]], [0, 1, 0], index);
-    quad([[a, lo, f], [b, lo, f], [b, lo, g], [a, lo, g]], [0, -1, 0], index);
-    if (!occupied.has(`${c.x - 1},${c.y}`)) quad([[a, lo, g], [a, hi, g], [a, hi, f], [a, lo, f]], [-1, 0, 0], index);
-    if (!occupied.has(`${c.x + 1},${c.y}`)) quad([[b, lo, f], [b, hi, f], [b, hi, g], [b, lo, g]], [1, 0, 0], index);
-    if (!occupied.has(`${c.x},${c.y - 1}`)) quad([[a, lo, f], [a, hi, f], [b, hi, f], [b, lo, f]], [0, 0, -1], index);
-    if (!occupied.has(`${c.x},${c.y + 1}`)) quad([[b, lo, g], [b, hi, g], [a, hi, g], [a, lo, g]], [0, 0, 1], index);
+    quad([[a, hi, f], [a, hi, g], [b, hi, g], [b, hi, f]], [0, 1, 0]);
+    quad([[a, lo, f], [b, lo, f], [b, lo, g], [a, lo, g]], [0, -1, 0]);
+    if (!occupied.has(`${c.x - 1},${c.y}`)) quad([[a, lo, g], [a, hi, g], [a, hi, f], [a, lo, f]], [-1, 0, 0]);
+    if (!occupied.has(`${c.x + 1},${c.y}`)) quad([[b, lo, f], [b, hi, f], [b, hi, g], [b, lo, g]], [1, 0, 0]);
+    if (!occupied.has(`${c.x},${c.y - 1}`)) quad([[a, lo, f], [a, hi, f], [b, hi, f], [b, lo, f]], [0, 0, -1]);
+    if (!occupied.has(`${c.x},${c.y + 1}`)) quad([[b, lo, g], [b, hi, g], [a, hi, g], [a, lo, g]], [0, 0, 1]);
+    geometry.addGroup(start, vertices.length / 3 - start, index);
   });
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   return geometry;

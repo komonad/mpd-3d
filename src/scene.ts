@@ -4,10 +4,14 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bodies } from './engine';
-import { bodyLayerGeometry, bodyGeometry } from './body-geometry';
+import { bodyLayerGeometry, bodySurfaceGeometries } from './body-geometry';
+import { fitShadowCamera, renderPixelRatio } from './render-quality';
+import { adhesiveTexture } from './surface-materials';
+import { glassRimGeometry } from './glass-geometry';
+import { SurfaceSSAOPass } from './surface-ao';
 import type { Cell, Level, State, Temperature } from './types';
 
 const palette = { wall: '#69747e', neutral: '#89949e', hot: '#d94e28', cold: '#298fcd', demon: '#8998a3', floor: '#b8b8ad', ink: '#263e39' };
@@ -26,12 +30,14 @@ export class GameScene {
   readonly camera = new THREE.OrthographicCamera(-8, 8, 8, -8, 0.1, 250);
   readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
-  private readonly ao: SSAOPass;
+  private readonly ao: SurfaceSSAOPass;
+  private readonly sun = new THREE.DirectionalLight('#fff6e8', 2.5);
   private board = new THREE.Group();
   private pieces = new Map<number, THREE.Group>();
   private demon = new THREE.Group();
   private demonMaterial = new THREE.MeshPhysicalMaterial({ color: palette.demon, roughness: 0.45, metalness: 0.12, clearcoat: 0.3, clearcoatRoughness: 0.35 });
   private coreMaterial = new THREE.MeshPhysicalMaterial({ color: '#d9e2e4', emissive: '#9cbbcc', emissiveIntensity: 0.2, roughness: 0.18, metalness: 0.25 });
+  private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, transparent: true, opacity: 1, alphaTest: 0.12, alphaToCoverage: true, depthWrite: false });
   private parts = new THREE.Group();
   private bodySignature = '';
   private labels = new Map<string, string>();
@@ -58,7 +64,6 @@ export class GameScene {
   private tilt = 32;
   private azimuth = -9;
   private running = true;
-  private quality = true;
   onHover?: (cellKey: number | null) => void;
   onPortalClick?: (target: string) => void;
   onNoteClick?: (text: string) => void;
@@ -67,7 +72,8 @@ export class GameScene {
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(Math.max(devicePixelRatio, 1.5), 2.5));
+    this.renderer.setPixelRatio(renderPixelRatio(devicePixelRatio, true));
+    this.adhesiveMaterial.map!.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor('#162523', 0);
@@ -84,20 +90,21 @@ export class GameScene {
     this.controls.touches.ONE = THREE.TOUCH.ROTATE;
 
     this.scene.add(new THREE.HemisphereLight('#ecf1de', '#597d78', 1.1));
-    const sun = new THREE.DirectionalLight('#fff6e8', 2.5); sun.position.set(-9, 16, 7); sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096); sun.shadow.camera.left = sun.shadow.camera.bottom = -34;
-    sun.shadow.camera.right = sun.shadow.camera.top = 34; sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
+    const sun = this.sun; sun.position.set(-9, 16, 7); sun.castShadow = true;
+    sun.shadow.mapSize.set(4096, 4096);
     sun.shadow.normalBias = 0.035; sun.shadow.bias = -0.00015; sun.shadow.radius = 3; this.scene.add(sun);
     const fill = new THREE.DirectionalLight('#a4d4e3', 0.8); fill.position.set(7, 10, -10); this.scene.add(fill);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.23 }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.58; ground.receiveShadow = true; this.scene.add(ground);
     const renderTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(this.renderer, renderTarget);
+    this.composer.setPixelRatio(1);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.ao = new SSAOPass(this.scene, this.camera, 1, 1, 16); this.ao.kernelRadius = 0.16; this.ao.minDistance = 0.001; this.ao.maxDistance = 0.1;
+    this.ao = new SurfaceSSAOPass(this.scene, this.camera, 1, 1, 16); this.ao.kernelRadius = 0.16; this.ao.minDistance = 0.001; this.ao.maxDistance = 0.1;
     this.ao.ssaoMaterial.defines.PERSPECTIVE_CAMERA = 0;
     this.ao.depthRenderMaterial.defines.PERSPECTIVE_CAMERA = 0;
     this.composer.addPass(this.ao);
+    this.composer.addPass(new SMAAPass());
     this.composer.addPass(new OutputPass());
     this.scene.add(this.board);
     new ResizeObserver(() => this.resize()).observe(host);
@@ -152,7 +159,7 @@ export class GameScene {
   }
 
   private paint(material: THREE.MeshPhysicalMaterial, cell: Cell, fixed: boolean): void {
-    material.color.set(cell.storesHeat ? fixed && cell.temperature === 0 ? palette.wall : thermalColor(cell.temperature) : cell.temperature === 0 ? '#e7f4f9' : thermalColor(cell.temperature));
+    material.color.set(cell.storesHeat ? fixed && cell.temperature === 0 ? palette.wall : thermalColor(cell.temperature) : cell.temperature === 0 ? '#ffffff' : thermalColor(cell.temperature));
     material.emissive.set(cell.temperature === 1 ? '#e64b18' : cell.temperature === -1 ? '#19567a' : '#000000');
     material.emissiveIntensity = cell.temperature === 1 ? 0.06 : cell.temperature === -1 ? 0.025 : 0;
   }
@@ -165,19 +172,32 @@ export class GameScene {
       const material = this.physical(thermalColor(cell.temperature), fixed); this.paint(material, cell, fixed);
       if (!cell.storesHeat) {
         material.map = material.normalMap = material.roughnessMap = null;
-        material.transmission = 1; material.thickness = 0.85; material.ior = 1.45;
-        material.roughness = 0.07; material.metalness = 0; material.clearcoat = 1; material.attenuationDistance = 5; material.attenuationColor.set('#e8f5fa');
+        material.transmission = 0.96; material.thickness = 0.45; material.ior = 1.33;
+        material.roughness = 0.035; material.metalness = 0; material.clearcoat = 0.6;
+        material.attenuationDistance = 12; material.attenuationColor.set('#ffffff'); material.envMapIntensity = 1.1;
       }
       return material;
     });
-    const core = new THREE.Mesh(bodyGeometry(cells, height), materials); core.castShadow = cells.some(c => c.storesHeat); core.receiveShadow = true; g.add(core);
+    const surfaces = bodySurfaceGeometries(cells, height);
+    for (const [kind, geometry] of Object.entries(surfaces)) {
+      const core = new THREE.Mesh(geometry, materials); core.castShadow = kind === 'solid'; core.receiveShadow = true;
+      core.userData.transmissiveOnly = kind === 'glass'; g.add(core);
+    }
     g.userData.key = root.key; g.userData.cellKeys = cells.map(c => c.key); g.userData.materials = materials; g.userData.uniform = uniform;
+    const glass = cells.filter(c => !c.storesHeat);
+    if (glass.length) {
+      const rimMaterial = new THREE.MeshPhysicalMaterial({ color: '#5e707c', roughness: 0.24, metalness: 0.2, transparent: true, opacity: 0.72, depthWrite: false });
+      const rim = new THREE.Mesh(glassRimGeometry(glass, height), rimMaterial);
+      rim.position.set(glass[0].x - root.x, 0, glass[0].y - root.y); rim.userData.transmissiveOnly = true; g.add(rim);
+      g.userData.glassRim = { material: rimMaterial, cellKey: glass[0].key };
+    }
     const delta = [[-1, 0], [0, 1], [1, 0], [0, -1]];
     const layer = bodyLayerGeometry(cells, height);
     if (layer.getAttribute('position').count) {
-      const insulation = this.physical('#f2edda'), adhesive = this.physical('#a7d365');
-      insulation.roughness = 0.9; adhesive.roughness = 0.17; adhesive.clearcoat = 1; adhesive.emissive.set('#73952e'); adhesive.emissiveIntensity = 0.1;
-      this.mesh(layer, [insulation, adhesive], g);
+      layer.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(layer.getAttribute('position').count * 3), 3));
+      g.userData.surfaceLayer = layer;
+      const insulation = this.physical('#f2edda'); insulation.roughness = 0.9;
+      this.mesh(layer, [insulation, this.adhesiveMaterial], g);
     } else layer.dispose();
     for (const cell of cells) {
       const x = cell.x - root.x, z = cell.y - root.y;
@@ -229,6 +249,23 @@ export class GameScene {
       this.targets.set(root.key, target); if (snap) group.position.copy(target);
       const materials = group.userData.materials as THREE.MeshPhysicalMaterial[];
       materials.forEach((m, i) => this.paint(m, group.userData.uniform ? root : cells[i], cells.some(c => c.fixed)));
+      const layer = group.userData.surfaceLayer as THREE.BufferGeometry | undefined;
+      if (layer) {
+        const positions = layer.getAttribute('position'), colors = layer.getAttribute('color'), color = new THREE.Color();
+        for (let i = 0; i < positions.count; i += 3) {
+          const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3 + root.x;
+          const y = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3 + root.y;
+          const owner = cells.reduce((a, b) => Math.hypot(b.x - x, b.y - y) < Math.hypot(a.x - x, a.y - y) ? b : a);
+          color.set(thermalColor(owner.temperature));
+          for (let j = 0; j < 3; j++) colors.setXYZ(i + j, color.r, color.g, color.b);
+        }
+        colors.needsUpdate = true;
+      }
+      const rim = group.userData.glassRim as { material: THREE.MeshPhysicalMaterial; cellKey: number } | undefined;
+      if (rim) {
+        const cell = cells.find(c => c.key === rim.cellKey)!;
+        rim.material.color.set(cell.temperature === 0 ? '#5e707c' : thermalColor(cell.temperature));
+      }
     }
   }
 
@@ -239,6 +276,14 @@ export class GameScene {
     this.pieces.clear(); this.targets.clear(); this.rings = []; this.goalLights = []; this.gridMeshes = []; this.noteMarkers = [];
     this.parts = new THREE.Group(); this.board.add(this.parts); this.bodySignature = ''; this.labels = labels; this.shownState = state;
     const w = level.width, h = level.height;
+    const lightDirection = new THREE.Vector3(-9, 16, 7).normalize();
+    this.sun.position.copy(lightDirection.multiplyScalar(Math.hypot(w, h) + 20));
+    this.sun.updateMatrixWorld(true);
+    this.sun.shadow.updateMatrices(this.sun);
+    fitShadowCamera(this.sun.shadow.camera, new THREE.Box3(
+      new THREE.Vector3(-w / 2 - 1.2, -0.6, -h / 2 - 1.2),
+      new THREE.Vector3(w / 2 + 1.2, 1.8, h / 2 + 1.2),
+    ));
     const platform = this.mesh(new RoundedBoxGeometry(w + 0.55, 0.45, h + 0.55, 4, 0.16), this.physical('#e4ded0'), this.board, 0, -0.205, 0);
     platform.receiveShadow = true;
     this.mesh(new RoundedBoxGeometry(w + 0.65, 0.12, h + 0.65, 3, 0.12), this.physical('#253e37'), this.board, 0, -0.425, 0);
@@ -247,6 +292,12 @@ export class GameScene {
     const matrix = new THREE.Matrix4();
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { matrix.makeTranslation(x - (w - 1) / 2, 0.025, y - (h - 1) / 2); tiles.setMatrixAt(y * w + x, matrix); }
     tiles.receiveShadow = true; this.board.add(tiles);
+    const floorGrid = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#8a948e', depthWrite: false }), w + h + 2);
+    for (let x = 0; x <= w; x++) { matrix.makeScale(0.016, 1, h); matrix.setPosition(x - w / 2, 0.053, 0); floorGrid.setMatrixAt(x, matrix); }
+    for (let y = 0; y <= h; y++) { matrix.makeScale(w, 1, 0.016); matrix.setPosition(0, 0.053, y - h / 2); floorGrid.setMatrixAt(w + 1 + y, matrix); }
+    floorGrid.userData.transmissiveOnly = true;
+    this.board.add(floorGrid);
     for (const goal of level.goals) {
       if (goal.x < 0 || goal.y < 0 || goal.x >= w || goal.y >= h) continue;
       const g = new THREE.Group(); g.position.set(goal.x - (w - 1) / 2, 0, goal.y - (h - 1) / 2); this.board.add(g);
@@ -294,7 +345,11 @@ export class GameScene {
 
   setTilt(degrees: number): void { if (this.tilt === degrees) return; this.tilt = degrees; this.resetCamera(); }
   setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { m.visible = visible; }); }
-  setQuality(high: boolean): void { this.quality = high; this.ao.enabled = high; const ratio = high ? Math.min(Math.max(devicePixelRatio, 1.5), 2.5) : Math.min(devicePixelRatio, 1.5); this.renderer.setPixelRatio(ratio); this.composer.setPixelRatio(ratio); this.resize(); }
+  setQuality(high: boolean): void {
+    this.ao.enabled = high;
+    const ratio = renderPixelRatio(devicePixelRatio, high);
+    this.renderer.setPixelRatio(ratio); this.resize();
+  }
   setExposure(exposure: number): void { this.renderer.toneMappingExposure = exposure; }
   resetCamera(): void {
     const angle = THREE.MathUtils.degToRad(this.tilt), yaw = THREE.MathUtils.degToRad(this.azimuth);
@@ -304,7 +359,7 @@ export class GameScene {
 
   private resize(): void {
     const width = this.host.clientWidth, height = this.host.clientHeight; if (!width || !height) return;
-    this.size.set(width, height); this.renderer.setSize(width, height);
+    this.renderer.setSize(width, height);
     const aspect = width / height, w = this.level?.width ?? 9, h = this.level?.height ?? 8;
     const yaw = THREE.MathUtils.degToRad(this.azimuth), tilt = THREE.MathUtils.degToRad(this.tilt);
     const projectedWidth = w * Math.abs(Math.cos(yaw)) + h * Math.abs(Math.sin(yaw));
@@ -312,7 +367,8 @@ export class GameScene {
     const vertical = Math.max(projectedHeight + 2.3, (projectedWidth + 3) / aspect) / 2;
     this.camera.left = -vertical * aspect; this.camera.right = vertical * aspect; this.camera.top = vertical; this.camera.bottom = -vertical;
     this.camera.updateProjectionMatrix();
-    this.composer.setSize(width, height);
+    this.renderer.getDrawingBufferSize(this.size);
+    this.composer.setSize(this.size.x, this.size.y);
   }
 
   private hit(event: MouseEvent): THREE.Object3D | undefined {
@@ -363,7 +419,7 @@ export class GameScene {
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) { geometries.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => materials.add(m)); }
     });
     geometries.forEach(g => g.dispose()); materials.forEach(m => {
-      if (m === this.demonMaterial || m === this.coreMaterial) return;
+      if (m === this.demonMaterial || m === this.coreMaterial || m === this.adhesiveMaterial) return;
       const map = (m as THREE.MeshStandardMaterial).map; map?.dispose(); m.dispose();
     });
   }

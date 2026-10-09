@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bodies, cloneState, initialState, move, transferHeat } from '../src/engine';
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
-import { bodyContours, bodyLayerGeometry, bodyGeometry } from '../src/body-geometry';
+import { bodyContours, bodyLayerGeometry, bodyGeometry, bodySurfaceGeometries } from '../src/body-geometry';
+import { glassRimGeometry } from '../src/glass-geometry';
 import { laboratory } from '../src/laboratory';
 import { settleTurn } from '../src/pistons';
 import type { Cell, Level, Temperature } from '../src/types';
@@ -43,6 +44,31 @@ test('rounded adhesive layers join without overlapping top strips and cover the 
   }
   assert.ok(area > 0.334 && area < 0.34, `Unexpected layer area ${area}`); layer.dispose();
 });
+test('surface layers batch by material and their top pattern remains continuous around corners', () => {
+  const geometry = bodyLayerGeometry([cell(0, 0, 0, 0, 0xfb)], 0.96);
+  assert.deepEqual(geometry.groups.map(g => g.materialIndex), [0, 1]);
+  assert.equal(geometry.groups.reduce((sum, g) => sum + g.count, 0), geometry.getAttribute('position').count);
+  const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal'), uv = geometry.getAttribute('uv');
+  const coordinates = new Map<string, [number, number]>();
+  for (let i = 0; i < positions.count; i++) {
+    if (normals.getY(i) < 0.9) continue;
+    const key = [positions.getX(i), positions.getY(i), positions.getZ(i)].map(v => v.toFixed(5)).join(',');
+    const u = uv.getX(i), v = uv.getY(i), previous = coordinates.get(key);
+    if (previous) {
+      const delta = u - previous[0]; assert.ok(Math.abs(delta - Math.round(delta)) < 0.00001);
+      assert.ok(Math.abs(v - previous[1]) < 0.00001);
+    } else coordinates.set(key, [u, v]);
+  }
+  geometry.dispose();
+});
+test('connected glass has an exterior rim without an internal division', () => {
+  const geometry = glassRimGeometry([cell(0, 0, 0, 0, 0x55, false), cell(1, 1, 0, 0, 0x55, false)], 0.96);
+  const material = new MeshBasicMaterial(), mesh = new Mesh(geometry, material); mesh.updateMatrixWorld();
+  const ray = new Raycaster(new Vector3(0.5, 3, 0), new Vector3(0, -1, 0));
+  assert.equal(ray.intersectObject(mesh).length, 0);
+  geometry.computeBoundingBox(); assert.ok(geometry.boundingBox!.max.y - geometry.boundingBox!.min.y > 0.95);
+  geometry.dispose(); material.dispose();
+});
 test('body contours preserve concave corners and enclosed holes', () => {
   assert.equal(bodyContours([cell(0, 0, 0), cell(1, 1, 0), cell(2, 0, 1)])[0].length, 6);
   const ring = Array.from({ length: 9 }, (_, i) => cell(i, i % 3, Math.floor(i / 3))).filter(c => c.key !== 4);
@@ -59,7 +85,15 @@ test('cube surfaces preserve height and mixed bodies omit shared walls', () => {
   const bounds = g.boundingBox!; assert.ok(Math.abs(bounds.max.y - bounds.min.y - 0.96) < 0.001);
   assert.ok(Math.abs(bounds.max.x - bounds.min.x - 0.96) < 0.001); g.dispose();
   const mixed = bodyGeometry([cell(0, 0, 0), cell(1, 1, 0, 0, 0x55, false)], 0.96);
-  assert.equal(mixed.getAttribute('position').count, 60); assert.equal(mixed.groups.length, 10); mixed.dispose();
+  assert.equal(mixed.getAttribute('position').count, 60); assert.deepEqual(mixed.groups.map(g => g.materialIndex), [0, 1]); mixed.dispose();
+});
+test('glass remains separate from opaque occluders within one connected body', () => {
+  const cells = [cell(0, 0, 0), cell(1, 1, 0, 0, 0x55, false)];
+  const { solid, glass } = bodySurfaceGeometries(cells, 0.96);
+  assert.deepEqual(solid!.groups.map(g => g.materialIndex), [0]);
+  assert.deepEqual(glass!.groups.map(g => g.materialIndex), [1]);
+  assert.equal(solid!.groups[0].count + glass!.groups[0].count, 60);
+  solid!.dispose(); glass!.dispose();
 });
 test('hot anchored pistons expand and can push a rigid body', () => {
   const l = level([cell(0, 3, 3, 1, 0xaa, true, true), cell(1, 4, 3), cell(2, 5, 3)]);

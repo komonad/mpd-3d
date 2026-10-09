@@ -1,6 +1,6 @@
 # Maxwell · 3D
 
-A local Three.js adaptation of the first world of Maxwell's puzzling demon. All grid blocks use cubic dimensions. Rigid bodies have continuous surfaces, including concave outlines and holes. Solid-color PBR materials distinguish matte housings, coated blocks, polished metal, adhesive gel, and transmitting glass. Insulation and adhesive layers cover vertical faces and expose their cross-sections on top. Layer meshes follow continuous contours with rounded corner joints. The renderer uses a supersampled, multisampled orthographic view, shadows, and ambient occlusion.
+A local Three.js adaptation of the first world of Maxwell's puzzling demon. All grid blocks use cubic dimensions. Rigid bodies have continuous surfaces, including concave outlines and holes. PBR materials distinguish matte housings, coated blocks, polished metal, and transmitting glass. Insulation and adhesive layers cover vertical faces and expose their cross-sections on top. Adhesive layers use six checker cells across each grid face. Clear squares expose the underlying surface; solid squares follow the local temperature color. The pattern follows continuous contours and rounded corner joints. Glass has a clear refracting body and thin exterior rims. The renderer combines supersampling, multisampling, SMAA, board-fitted shadows, and ambient occlusion. Postprocessing targets match the canvas drawing buffer in physical pixels, including fractional display densities. Surface layers batch their faces by material.
 
 ## Run
 
