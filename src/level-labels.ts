@@ -1,8 +1,14 @@
 import type { Cell, Level } from './types';
 
+export function levelIdentifier(level: Level): string { return level.displayName ?? level.label; }
+
+export function compareLevels(a: Level, b: Level): number {
+  return a.order !== undefined && b.order !== undefined ? a.order - b.order : levelIdentifier(a).localeCompare(levelIdentifier(b), undefined, { numeric: true });
+}
+
 export function levelLabels(levels: Level[]): Map<string, { full: string; local: string }> {
   return new Map(levels.map(level => [level.id, {
-    full: level.displayName ?? level.label,
+    full: levelIdentifier(level),
     local: level.localName ?? level.label.split('-').at(-1)!.replace(/^0+(?=\d)/, ''),
   }]));
 }

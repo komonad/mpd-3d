@@ -15,7 +15,7 @@ export interface Demon extends Point { temperature: Temperature; key?: string; c
 export interface TurnFrame { cells: Cell[]; players: Demon[]; pistons: Piston[]; phase: 'motion' | 'heat' }
 export interface Level {
   id: string; width: number; height: number; label: string;
-  displayName?: string; localName?: string;
+  displayName?: string; localName?: string; order?: number;
   category: 'main' | 'extra' | 'world' | 'hint' | 'lab';
   cells: Omit<Cell, 'key'>[]; players: (Point & { temperature?: Temperature; container?: number })[]; goals: Point[]; hintId?: string; tail: number[];
   title?: string; description?: string; pistons?: Piston[];

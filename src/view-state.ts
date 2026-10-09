@@ -13,6 +13,11 @@ export function cameraHalfHeight(width: number, height: number, aspect: number, 
   return Math.max(projectedHeight + 2.3, (projectedWidth + 3) / aspect) / 2;
 }
 
+export function orthographicDepth(width: number, height: number, exteriorExtent: number): { distance: number; near: number; far: number } {
+  const radius = Math.hypot(exteriorExtent + width, exteriorExtent + height) + 8;
+  return { distance: radius + 16, near: 8, far: radius * 2 + 32 };
+}
+
 export function motionSettled(elapsed: number, distances: readonly number[]): boolean {
   return elapsed >= 110 && distances.every(distance => distance <= 0.001);
 }

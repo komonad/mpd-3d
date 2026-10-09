@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
-import { cameraHalfHeight, demonStatus, followFocus, motionSettled } from '../src/view-state';
-import { blockHeight, bodyGeometry } from '../src/body-geometry';
+import { Mesh, MeshBasicMaterial, OrthographicCamera, Raycaster, Vector3 } from 'three';
+import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth } from '../src/view-state';
+import { blockHeight, bodyGeometry, exteriorHalfExtent } from '../src/body-geometry';
 
 test('follow focus tracks all demons on the ground plane regardless of pose height', () => {
   const first = followFocus([new Vector3(-3, 0.05, 2), new Vector3(5, 0.3, -4)]);
@@ -15,6 +15,19 @@ test('large world maps retain a bounded local view while small rooms fit normall
   assert.equal(cameraHalfHeight(51, 20, 1.4, tilt, yaw), cameraHalfHeight(500, 300, 1.4, tilt, yaw));
   assert.ok(cameraHalfHeight(11, 9, 1.4, tilt, yaw) < cameraHalfHeight(51, 20, 1.4, tilt, yaw));
   assert.ok(cameraHalfHeight(11, 9, 0.6, tilt, yaw) > cameraHalfHeight(11, 9, 1.4, tilt, yaw));
+});
+test('orthographic depth contains the exterior at low angles without changing projected scale', () => {
+  const clip = orthographicDepth(51, 35, exteriorHalfExtent), camera = new OrthographicCamera(-8, 8, 6, -6, clip.near, clip.far);
+  for (const tilt of [0.02, Math.PI * 0.44]) for (const yaw of [0, Math.PI / 4, Math.PI]) {
+    const target = new Vector3(25, 0.615, 17), direction = new Vector3(Math.sin(tilt) * Math.sin(yaw), Math.cos(tilt), Math.sin(tilt) * Math.cos(yaw));
+    camera.position.copy(target).addScaledVector(direction, clip.distance); camera.lookAt(target); camera.updateMatrixWorld();
+    for (const x of [-exteriorHalfExtent - 26, exteriorHalfExtent]) for (const z of [-exteriorHalfExtent - 18, exteriorHalfExtent]) {
+      const projected = new Vector3(x, 1.015, z).project(camera); assert.ok(projected.z > -1 && projected.z < 1);
+    }
+    const point = new Vector3(1, 1, 1), projected = point.clone().project(camera);
+    camera.position.copy(target).addScaledVector(direction, 25); camera.lookAt(target); camera.updateMatrixWorld();
+    const close = point.project(camera); assert.ok(Math.abs(close.x - projected.x) < 1e-10 && Math.abs(close.y - projected.y) < 1e-10);
+  }
 });
 test('completion waits for both motion time and every moving object to settle', () => {
   assert.equal(motionSettled(109, [0, 0]), false);

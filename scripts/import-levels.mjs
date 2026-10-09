@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { decodeMxw } from './mxw.mjs';
+import { nativeLevelNames } from './level-names.mjs';
 
 const directory = process.argv[2] ?? "C:/Program Files (x86)/Steam/steamapps/common/Maxwell's puzzling demon";
 const worldPath = path.join(directory, 'world');
@@ -16,20 +17,19 @@ const worlds = [
 ];
 const worldById = new Map(worlds.map(world => [world.id, world]));
 const levels = [];
-const subscript = number => String(number).replace(/\d/g, digit => '₀₁₂₃₄₅₆₇₈₉'[Number(digit)]);
-function visit(node, label, category, worldId, parentId, displayName = label, localName = displayName) {
+const names = nativeLevelNames(structure.root);
+function visit(node, label, category, worldId, parentId) {
   if (worldById.has(node.id)) {
-    const world = worldById.get(node.id); label = displayName = localName = `w${world.index}`;
+    const world = worldById.get(node.id); label = `w${world.index}`;
     category = 'world'; worldId = node.id;
   }
   const level = decodeMxw(fs.readFileSync(path.join(worldPath, node.id + '.mxw')), node.id);
-  levels.push({ ...level, label, displayName, localName, category, worldId, parentId, hintId: node.hintSublevels?.[0]?.id });
+  levels.push({ ...level, label, ...names.get(node.id), category, worldId, parentId, hintId: node.hintSublevels?.[0]?.id });
   const prefix = category === 'world' ? String(worldById.get(worldId).index) : label;
-  const fullName = local => category === 'world' ? `${prefix}-${local}` : `${displayName}:${local}`;
-  node.normalSublevels?.forEach((child, i) => visit(child, `${prefix}-${String(i + 1).padStart(2, '0')}`, category === 'hint' ? 'hint' : 'main', worldId, node.id, fullName(String(i + 1)), String(i + 1)));
-  node.extraSublevels?.forEach((child, i) => { const local = String.fromCharCode(65 + i); visit(child, `${prefix}-${local}`, category === 'hint' ? 'hint' : 'extra', worldId, node.id, fullName(local), local); });
-  node.metaSublevels?.forEach((child, i) => { const local = String.fromCharCode(0x3b1 + i); visit(child, `${prefix}-${local}`, category === 'hint' ? 'hint' : 'extra', worldId, node.id, fullName(local), local); });
-  node.hintSublevels?.forEach((child, i) => { const local = `?${i ? subscript(i) : ''}`; visit(child, `${label}?${i ? i + 1 : ''}`, 'hint', worldId, node.id, fullName(local), local); });
+  node.normalSublevels?.forEach((child, i) => visit(child, `${prefix}-${String(i + 1).padStart(2, '0')}`, category === 'hint' ? 'hint' : 'main', worldId, node.id));
+  node.extraSublevels?.forEach((child, i) => visit(child, `${prefix}-${String.fromCharCode(65 + i)}`, category === 'hint' ? 'hint' : 'extra', worldId, node.id));
+  node.metaSublevels?.forEach((child, i) => visit(child, `${prefix}-${String.fromCharCode(0x3b1 + i)}`, category === 'hint' ? 'hint' : 'extra', worldId, node.id));
+  node.hintSublevels?.forEach((child, i) => visit(child, `${label}?${i ? i + 1 : ''}`, 'hint', worldId, node.id));
 }
 visit(structure.root, '起点', 'world', hub.id);
 levels.find(level => level.id === structure.root.id).title = '入口大厅';

@@ -3,7 +3,7 @@ import { GameScene } from './scene';
 import { laboratory } from './laboratory';
 import { cloneState, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
-import { levelLabels } from './level-labels';
+import { compareLevels, levelIdentifier, levelLabels } from './level-labels';
 import { turnPlayback } from './turn-playback';
 import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds, type Session } from './session';
 import type { Dataset, Direction, Level, State, Temperature, World } from './types';
@@ -22,7 +22,6 @@ const icons: Record<string, string> = {
   enter: '<path d="M20 4v8H4m6-6-6 6 6 6"/>', pin: '<path d="m8 3 8 0-2 6 4 4H6l4-4zM12 13v8"/>'
 };
 const icon = (name: string) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] ?? ''}</svg>`;
-const names = ['初次推动', '冷热相遇', '保持冷静', '热量的流向', '平衡的分量', '传导之间', '连成一体', '冷静的路线', '隔热边界', '另一面', '向内探索', '局部隔热', '热量的路径', '边缘的温度', '巧妙排列', '静止的力量', '固定与自由', '有限与无限', '温度守恒', '最后的平衡'];
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const app = $('#app');
 
@@ -89,10 +88,8 @@ let sidebarSignature = '';
 function levelName(l: Level): string {
   if (l.title) return l.title;
   if (l.category === 'world') return data.worlds?.find(w => w.id === l.id)?.title ?? '温度的世界';
-  if (l.worldId && l.worldId !== data.world) return l.category === 'hint' ? '提示实验' : `关卡 ${l.label}`;
-  if (l.category === 'extra') return ['热量的回路', '边界实验', '长廊之外', '封闭的平衡', '冷暖之间', '外界的温度', '分离与连接'][parseInt(l.label.slice(-1), 36) - 10] ?? '额外实验';
   if (l.category === 'hint') return '提示实验';
-  return names[Number(l.label.split('-')[1]) - 1] ?? '温度实验';
+  return `关卡 ${levelIdentifier(l)}`;
 }
 function snapshotData(): Snapshot { const { turnFrames: _, ...current } = state; return { ...session, current }; }
 function snapshot(): Snapshot { return structuredClone(snapshotData()); }
@@ -120,7 +117,8 @@ function renderLevels(): void {
   const signature = JSON.stringify([selectedWorld, category, level.id, [...solved]]);
   if (signature === sidebarSignature) return; sidebarSignature = signature;
   const world = currentWorld(), available = new Set(unlockedWorlds(data, solved).map(w => w.id));
-  const list = data.levels.filter(l => l.category === category && (category === 'lab' || (l.worldId ?? data.world) === selectedWorld));
+  const list = data.levels.filter(l => l.category === category && (category === 'lab' || (l.worldId ?? data.world) === selectedWorld))
+    .sort(compareLevels);
   $('#world-picker').innerHTML = (data.worlds ?? [world]).map(w => `<option value="${w.id}" ${w.id === selectedWorld ? 'selected' : ''} ${available.has(w.id) ? '' : 'disabled'}>${w.index === 0 ? '大世界' : `世界 ${w.index} · ${w.title}`}${w.supported ? available.has(w.id) ? '' : ' · 未解锁' : ' · 尚未开放'}</option>`).join('');
   $('#chapter-eyebrow').textContent = world.index === 0 ? 'OVERWORLD' : `WORLD ${String(world.index).padStart(2, '0')}`;
   $('#hub-button').hidden = !data.hub || selectedWorld === data.hub;
@@ -129,8 +127,9 @@ function renderLevels(): void {
   for (const key of ['main', 'extra', 'lab'] as const) $(`#${key}-tab small`).textContent = String(data.levels.filter(l => l.category === key && (key === 'lab' || (l.worldId ?? data.world) === selectedWorld)).length);
   $('#level-list').innerHTML = list.map(l => {
     const done = solved.has(l.id), selected = l.id === level.id;
-    const number = l.label.split('-')[1]; const hot = l.cells.some(c => c.temperature === 1), cold = l.cells.some(c => c.temperature === -1);
-    return `<button class="level-item ${selected ? 'selected' : ''} ${done ? 'completed' : ''}" data-level="${l.id}" aria-current="${selected ? 'true' : 'false'}"><span class="level-number">${done ? icon('check') : number}</span><span class="level-text"><b>${levelName(l)}</b><small>${l.label} ${done ? '· 已完成' : '· ' + l.width + ' × ' + l.height}</small></span><span class="level-thermals">${hot ? '<i class="hot"></i>' : ''}${cold ? '<i class="cold"></i>' : ''}</span>${selected ? icon('chevron') : ''}</button>`;
+    const identifier = levelIdentifier(l), number = identifier.includes(':') ? identifier.slice(identifier.indexOf('-') + 1) : l.localName ?? l.label.split('-').at(-1);
+    const hot = l.cells.some(c => c.temperature === 1), cold = l.cells.some(c => c.temperature === -1);
+    return `<button class="level-item ${selected ? 'selected' : ''} ${done ? 'completed' : ''}" data-level="${l.id}" aria-current="${selected ? 'true' : 'false'}"><span class="level-number">${done ? icon('check') : number}</span><span class="level-text"><b>${levelName(l)}</b><small>${identifier} ${done ? '· 已完成' : '· ' + l.width + ' × ' + l.height}</small></span><span class="level-thermals">${hot ? '<i class="hot"></i>' : ''}${cold ? '<i class="cold"></i>' : ''}</span>${selected ? icon('chevron') : ''}</button>`;
   }).join('');
   $('#main-tab').setAttribute('aria-selected', String(category === 'main')); $('#extra-tab').setAttribute('aria-selected', String(category === 'extra'));
   $('#lab-tab').setAttribute('aria-selected', String(category === 'lab'));
@@ -143,8 +142,8 @@ function renderHud(): void {
   $('.play-area').setAttribute('aria-busy', String(resolving));
   $('#breadcrumb-world').textContent = currentWorld().index === 0 ? '大世界' : `世界 ${String(currentWorld().index).padStart(2, '0')}`;
   $('#move-count').textContent = String(state.moves).padStart(3, '0'); $('#push-count').textContent = String(state.pushes).padStart(3, '0');
-  $('#level-title').textContent = levelName(level); $('#level-badge').textContent = level.label.replace('-', '—');
-  $('#breadcrumb-level').textContent = level.category === 'world' ? '世界地图' : level.category === 'hint' ? `${level.label} 提示` : level.category === 'lab' ? '机制实验室' : `关卡 ${level.label.split('-')[1]}`;
+  $('#level-title').textContent = levelName(level); $('#level-badge').textContent = levelIdentifier(level);
+  $('#breadcrumb-level').textContent = level.category === 'world' ? '世界地图' : level.category === 'hint' ? `${levelIdentifier(level)} 提示` : level.category === 'lab' ? '机制实验室' : `关卡 ${levelIdentifier(level)}`;
   $('#level-description').textContent = level.description ?? (level.category === 'world' ? '靠近入口按 E 进入；完成的关卡入口可以推动。' : level.category === 'hint' ? '在这里自由实验。按 Q 返回关卡。' : '将方块推到蓝色六边形终点，保持小妖冷静。');
   $('#undo-button').toggleAttribute('disabled', !undoHistory.length); $('#redo-button').toggleAttribute('disabled', !redoHistory.length);
   $('#piston-number-button').hidden = !state.pistons?.some(p => p.model === 'boundary');
@@ -240,7 +239,7 @@ function exit(): void {
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
 function nextLevel(): void {
-  const main = data.levels.filter(l => l.category === category && (category === 'lab' || l.worldId === selectedWorld)), index = main.findIndex(l => l.id === level.id);
+  const main = data.levels.filter(l => l.category === category && (category === 'lab' || l.worldId === selectedWorld)).sort(compareLevels), index = main.findIndex(l => l.id === level.id);
   selectLevel(main[index + 1]?.id ?? selectedWorld);
 }
 function openHint(): void {
@@ -368,7 +367,7 @@ async function start(): Promise<void> {
     selectedWorld = data.world;
     let saved: Snapshot | undefined;
     try { const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null'); if (value && levelsById.has(value.current?.levelId) && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) saved = value; } catch { /* Invalid saved data starts a new session. */ }
-    if (saved) { session = completeHierarchy(data, saved); solved = new Set(saved.solved); load(saved.current.levelId, saved.current.outside, saved.current); }
+    if (saved) { session = completeHierarchy(data, saved); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current); }
     else {
       const first = data.levels.find(l => l.category === 'main' && l.worldId === data.world)!;
       session = selectSession(data, first);
@@ -389,7 +388,7 @@ async function start(): Promise<void> {
           }
         }
       } catch { /* Legacy progress is optional when starting a new session. */ }
-      solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current);
+      session = completeHierarchy(data, session); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current);
     }
     bind();
   } catch (error) {

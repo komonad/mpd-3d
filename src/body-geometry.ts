@@ -4,6 +4,7 @@ import type { Cell, Point } from './types';
 interface Segment { a: Point; b: Point; direction: number }
 export const bodyBaseHeight = 0.055;
 export const blockHeight = 0.96;
+export const exteriorHalfExtent = 2048;
 const key = (p: Point) => `${p.x},${p.y}`;
 export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { width: number; height: number }): THREE.BufferGeometry {
   const root = cells[0], occupied = new Set(cells.map(key));
@@ -33,14 +34,14 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
     }
     loops.push(loop);
   }
-  const surfaces = [{ vertices: [] as number[], uv: [] as number[] }, { vertices: [] as number[], uv: [] as number[] }];
+  const surfaces = [{ vertices: [] as number[], uv: [] as number[], owners: [] as number[] }, { vertices: [] as number[], uv: [] as number[], owners: [] as number[] }];
   const geometry = new THREE.BufferGeometry();
   const lo = bodyBaseHeight, hi = lo + height;
   const vertex = (p: Point, y: number) => [p.x - root.x - 0.5, y, p.y - root.y - 0.5];
-  function quad(points: number[][], coordinates: number[][], kind: number): void {
+  function quad(points: number[][], coordinates: number[][], kind: number, owner = -1): void {
     if (kind !== 2 && kind !== 3) return;
     const surface = surfaces[kind - 2];
-    for (const i of [0, 1, 2, 0, 2, 3]) { surface.vertices.push(...points[i]); surface.uv.push(...coordinates[i]); }
+    for (const i of [0, 1, 2, 0, 2, 3]) { surface.vertices.push(...points[i]); surface.uv.push(...coordinates[i]); surface.owners.push(owner); }
   }
   function strip(o: Point, i: Point, n: Point, e: Point, kind: number, u: number, v: number): void {
     const depth = 3, width = 0.1 / (hi - lo) * depth;
@@ -82,13 +83,37 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
       strip(s.o, s.i, s.n, s.e, s.kind, u, distance / perimeter * repeats);
     }
   }
-  const vertices: number[] = [], uv: number[] = [];
+  const at = new Map(cells.map(c => [key(c), c]));
+  const edgeAt = (c: Cell, direction: number) => c.edges >> ((3 - direction) * 2) & 3;
+  for (const cell of cells) for (const direction of [1, 2]) {
+    const neighbor = at.get(`${cell.x + (direction === 1 ? 1 : 0)},${cell.y + (direction === 2 ? 1 : 0)}`);
+    if (!neighbor || cell.container !== neighbor.container) continue;
+    const opposite = (direction + 2) % 4;
+    const a = edgeAt(cell, direction), b = edgeAt(neighbor, opposite);
+    if (a !== 3 && b !== 3 || cell.storesHeat === neighbor.storesHeat && a !== 2 && b !== 2) continue;
+    const owner = a === 3 ? cell : neighbor;
+    const side = owner === cell ? 1 : -1, tangent = direction === 1 ? { x: 0, y: 1 } : { x: -1, y: 0 };
+    const normal = { x: tangent.y * side, y: -tangent.x * side };
+    const center = { x: cell.x + (direction === 1 ? 1 : 0.5), y: cell.y + (direction === 2 ? 1 : 0.5) };
+    const point = (along: number, across: number) => ({ x: center.x + tangent.x * along + normal.x * across, y: center.y + tangent.y * along + normal.y * across });
+    const o = point(-0.481, 0.002), i = point(-0.481, -0.098), n = point(0.481, -0.098), e = point(0.481, 0.002);
+    const top = hi + 0.001, width = 0.1 / height * 3, u = 0, v = 3;
+    const face = (points: number[][], coordinates: number[][]) => quad(side > 0 ? points : [...points].reverse(), side > 0 ? coordinates : [...coordinates].reverse(), 3, owner.key);
+    face([vertex(o, top), vertex(i, top), vertex(n, top), vertex(e, top)], [[u, 0], [u, width], [v, width], [v, 0]]);
+    face([vertex(o, lo), vertex(o, top), vertex(e, top), vertex(e, lo)], [[u, 3], [u, 0], [v, 0], [v, 3]]);
+    face([vertex(n, lo), vertex(n, top), vertex(i, top), vertex(i, lo)], [[v, 3 + width], [v, width], [u, width], [u, 3 + width]]);
+    face([vertex(i, lo), vertex(i, top), vertex(o, top), vertex(o, lo)], [[width, 3], [width, 0], [0, 0], [0, 3]]);
+    face([vertex(e, lo), vertex(e, top), vertex(n, top), vertex(n, lo)], [[0, 3], [0, 0], [width, 0], [width, 3]]);
+  }
+  const vertices: number[] = [], uv: number[] = [], owners: number[] = [];
   surfaces.forEach((s, index) => {
     if (s.vertices.length) geometry.addGroup(vertices.length / 3, s.vertices.length / 3, index);
     for (const value of s.vertices) vertices.push(value);
     for (const value of s.uv) uv.push(value);
+    for (const value of s.owners) owners.push(value);
   });
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geometry.computeVertexNormals();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geometry.setAttribute('ownerKey', new THREE.Int32BufferAttribute(owners, 1)); geometry.computeVertexNormals();
   return geometry;
 }
 export function bodyContours(cells: Pick<Cell, 'x' | 'y'>[]): Point[][] {
@@ -157,8 +182,8 @@ export function bodyGeometry(cells: Cell[], height: number, exterior?: { width: 
     target.closePath(); return target;
   };
   const shapes = exterior ? [new THREE.Shape([
-    new THREE.Vector2(-2048 - root.x, -2048 + root.y), new THREE.Vector2(2048 - root.x, -2048 + root.y),
-    new THREE.Vector2(2048 - root.x, 2048 + root.y), new THREE.Vector2(-2048 - root.x, 2048 + root.y),
+    new THREE.Vector2(-exteriorHalfExtent - root.x, -exteriorHalfExtent + root.y), new THREE.Vector2(exteriorHalfExtent - root.x, -exteriorHalfExtent + root.y),
+    new THREE.Vector2(exteriorHalfExtent - root.x, exteriorHalfExtent + root.y), new THREE.Vector2(-exteriorHalfExtent - root.x, exteriorHalfExtent + root.y),
   ])] : outers.map(p => path(p, new THREE.Shape()) as THREE.Shape);
   for (const hole of holes) {
     const points = path(hole, new THREE.Path()), test = hole[0];

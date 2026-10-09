@@ -7,14 +7,15 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bodies } from './engine';
-import { blockHeight, bodyLayerGeometry, bodySurfaceGeometries, fixedAnchorPoints } from './body-geometry';
+import { blockHeight, bodyLayerGeometry, bodySurfaceGeometries, exteriorHalfExtent, fixedAnchorPoints } from './body-geometry';
 import { fitShadowCamera, renderPixelRatio } from './render-quality';
 import { adhesiveTexture } from './surface-materials';
 import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
-import { cameraHalfHeight, demonStatus, followFocus, motionSettled } from './view-state';
+import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth } from './view-state';
 import { depth, directions, opposite } from './topology';
 import { portalLabel, type levelLabels } from './level-labels';
+import { pickBodyCell } from './cell-picking';
 import type { Cell, Level, Piston, State, Temperature } from './types';
 
 const palette = { wall: '#aab1b6', neutral: '#bec5ca', hot: '#d94e28', cold: '#298fcd', demon: '#b9c0c5', floor: '#eef0ec' };
@@ -116,8 +117,8 @@ export class GameScene {
     this.renderer.domElement.addEventListener('pointermove', e => this.hover(e));
     this.renderer.domElement.addEventListener('pointerleave', () => { this.hoverEvent = undefined; this.onHover?.(null); });
     this.renderer.domElement.addEventListener('click', e => {
-      const hit = this.hit(e); if (hit?.userData.portal) this.onPortalClick?.(hit.userData.portal as string);
-      if (hit?.userData.note) this.onNoteClick?.(hit.userData.note as string);
+      const hit = this.hit(e); if (hit?.portal) this.onPortalClick?.(hit.portal);
+      if (hit?.note) this.onNoteClick?.(hit.note);
     });
     document.addEventListener('visibilitychange', () => { this.running = !document.hidden; });
     this.resize(); this.renderer.setAnimationLoop(() => this.animate());
@@ -220,7 +221,7 @@ export class GameScene {
       if (cell.portal || (cell.heatCapacity ?? 1) > 1) {
         const text = cell.portal ? portalLabel(cell, this.labels) : String(cell.heatCapacity);
         const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(text, cell.portal?.shortcut ? 600 : 700), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
-        mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.portal = cell.portal?.target;
+        mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.labelKey = cell.key; mark.userData.portal = cell.portal?.target;
       }
       const piston = state.pistons?.find(p => p.baseKey === cell.key);
       if (piston) {
@@ -350,14 +351,15 @@ export class GameScene {
       materials.forEach((m, i) => this.paint(m, group.userData.uniform ? root : cells[i], fixed));
       const layer = group.userData.surfaceLayer as THREE.BufferGeometry | undefined;
       if (layer) {
-        const positions = layer.getAttribute('position'), colors = layer.getAttribute('color'), color = new THREE.Color();
+        const positions = layer.getAttribute('position'), colors = layer.getAttribute('color'), ownerKeys = layer.getAttribute('ownerKey'), color = new THREE.Color();
         let owners = group.userData.layerOwners as number[] | undefined;
         if (!owners) {
           owners = [];
           for (let i = 0; i < positions.count; i += 3) {
             const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3 + root.x;
             const y = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3 + root.y;
-            owners.push(cells.reduce((best, c, index) => Math.hypot(c.x - x, c.y - y) < Math.hypot(cells[best].x - x, cells[best].y - y) ? index : best, 0));
+            const owner = cells.findIndex(c => c.key === ownerKeys.getX(i));
+            owners.push(owner >= 0 ? owner : cells.reduce((best, c, index) => Math.hypot(c.x - x, c.y - y) < Math.hypot(cells[best].x - x, cells[best].y - y) ? index : best, 0));
           }
           group.userData.layerOwners = owners;
         }
@@ -496,8 +498,10 @@ export class GameScene {
   resetCamera(): void {
     this.stopCameraInertia();
     const angle = THREE.MathUtils.degToRad(this.tilt), yaw = THREE.MathUtils.degToRad(this.azimuth);
+    const clip = orthographicDepth(this.level?.width ?? 9, this.level?.height ?? 8, exteriorHalfExtent);
+    this.camera.near = clip.near; this.camera.far = clip.far;
     this.controls.target.copy(this.characterFocus());
-    this.camera.position.set(25 * Math.sin(angle) * Math.sin(yaw), 25 * Math.cos(angle), 25 * Math.sin(angle) * Math.cos(yaw)).add(this.controls.target);
+    this.camera.position.set(clip.distance * Math.sin(angle) * Math.sin(yaw), clip.distance * Math.cos(angle), clip.distance * Math.sin(angle) * Math.cos(yaw)).add(this.controls.target);
     this.camera.zoom = 1; this.camera.lookAt(this.controls.target); this.controls.update(); this.resize();
   }
 
@@ -513,25 +517,23 @@ export class GameScene {
     this.composer.setSize(this.size.x, this.size.y);
   }
 
-  private hit(event: MouseEvent): THREE.Object3D | undefined {
+  private hit(event: MouseEvent): { key?: number; portal?: string; note?: string } | undefined {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const hit = this.raycaster.intersectObjects([...this.pieces.values(), ...this.noteMarkers], true)[0];
     if (!hit) return;
-    if (!hit.object.userData.note) {
-      let group: THREE.Object3D | null = hit.object;
-      while (group && !group.userData.cellKeys) group = group.parent;
-      const keys = group?.userData.cellKeys as number[] | undefined;
-      const root = this.shownState?.cells.find(c => c.key === group?.userData.key);
-      const local = group?.worldToLocal(hit.point.clone());
-      const x = Math.round((local?.x ?? 0) + (root?.x ?? 0)), y = Math.round((local?.z ?? 0) + (root?.y ?? 0));
-      const cell = this.shownState?.cells.find(c => keys?.includes(c.key) && c.x === x && c.y === y) ?? root;
-      hit.object.userData.key = cell?.key; hit.object.userData.portal = cell?.portal?.target;
-    }
-    return hit.object;
+    if (hit.object.userData.note) return { note: hit.object.userData.note };
+    let group: THREE.Object3D | null = hit.object;
+    while (group && !group.userData.cellKeys) group = group.parent;
+    const keys = group?.userData.cellKeys as number[] | undefined;
+    const root = this.shownState?.cells.find(c => c.key === group?.userData.key);
+    if (!group || !keys || !root) return;
+    const local = group.worldToLocal(hit.point.clone());
+    const cell = pickBodyCell(this.shownState!.cells.filter(c => keys.includes(c.key)), { x: local.x + root.x, y: local.z + root.y }, hit.object.userData.labelKey);
+    return cell && { key: cell.key, portal: cell.portal?.target };
   }
-  private hover(event: PointerEvent): void { this.hoverEvent = event; const hit = this.hit(event); this.onHover?.(hit?.userData.key ?? hit?.parent?.userData.key ?? null, this.shownState); }
+  private hover(event: PointerEvent): void { this.hoverEvent = event; const hit = this.hit(event); this.onHover?.(hit?.key ?? null, this.shownState); }
   private animate(): void {
     const now = performance.now(), dt = Math.min((now - this.previousTime) / 1000, 0.1); this.previousTime = now;
     if (!this.running) return;

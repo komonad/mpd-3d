@@ -43,7 +43,23 @@ export function selectSession(data: Dataset, level: Level, solved: string[] = []
 export function completeHierarchy(data: Dataset, session: Session): Session {
   const level = data.levels.find(l => l.id === session.current.levelId); if (!level) return session;
   const hierarchy = selectSession(data, level, session.solved, session.visited);
-  return { ...session, entries: { ...hierarchy.entries, ...session.entries }, states: { ...hierarchy.states, ...session.states }, baselines: { ...hierarchy.baselines, ...session.baselines } };
+  const definitions = new Map(data.levels.map(l => [l.id, l]));
+  const restorePortals = (state: State): State => {
+    const source = definitions.get(state.levelId); if (!source) return state;
+    return { ...state, cells: state.cells.map(cell => {
+      const definition = source.cells[cell.key]; if (!definition) return cell;
+      const restored = { ...cell }; delete restored.portal;
+      if (definition.portal) restored.portal = structuredClone(definition.portal);
+      return restored;
+    }) };
+  };
+  const restoreRooms = (rooms: Record<string, State>) => Object.fromEntries(Object.entries(rooms).map(([id, state]) => [id, restorePortals(state)]));
+  return { ...session, current: restorePortals(session.current),
+    entries: { ...hierarchy.entries, ...session.entries },
+    states: restoreRooms({ ...hierarchy.states, ...session.states }),
+    baselines: restoreRooms({ ...hierarchy.baselines, ...session.baselines }),
+    hints: session.hints.map(frame => ({ ...frame, state: restorePortals(frame.state) })),
+  };
 }
 
 export function recordState(session: Session, state: State, level: Level): void {

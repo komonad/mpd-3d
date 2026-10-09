@@ -61,6 +61,41 @@ test('surface layers batch by material and their top pattern remains continuous 
   }
   geometry.dispose();
 });
+test('joined adhesive faces retain a single checker layer with the sticky cell temperature owner', () => {
+  for (const [cells, owner] of [
+    [[cell(4, 0, 0, 1, 0x75), cell(5, 1, 0, 0, 0x55, false)], 4],
+    [[cell(4, 0, 0, 0, 0x55, false), cell(5, 1, 0, -1, 0x57)], 5],
+    [[cell(4, 0, 0, 1, 0x75), cell(5, 1, 0, 1, 0x56)], 4],
+    [[cell(4, 0, 0, 0, 0x5d), cell(5, 0, 1, 0, 0x55, false)], 4],
+  ] as [Cell[], number][]) {
+    const geometry = bodyLayerGeometry(cells, 0.96), positions = geometry.getAttribute('position'), owners = geometry.getAttribute('ownerKey'), uv = geometry.getAttribute('uv');
+    const indices = Array.from({ length: positions.count }, (_, i) => i).filter(i => owners.getX(i) === owner);
+    assert.ok(indices.length > 0);
+    const normals = geometry.getAttribute('normal');
+    assert.ok(indices.some(i => normals.getY(i) > 0.9));
+    assert.ok(indices.some(i => Math.abs(normals.getY(i)) < 0.1));
+    assert.ok(Math.max(...indices.map(i => positions.getY(i))) - Math.min(...indices.map(i => positions.getY(i))) > 0.95);
+    assert.equal(Math.max(...indices.map(i => uv.getX(i))), 3);
+    const sticky = cells.find(c => c.key === owner)!, midpoint = { x: (cells[0].x + cells[1].x) / 2, y: (cells[0].y + cells[1].y) / 2 };
+    const material = new MeshBasicMaterial(), mesh = new Mesh(geometry, [material, material]); mesh.updateMatrixWorld();
+    const ray = new Raycaster(new Vector3(midpoint.x - cells[0].x + Math.sign(sticky.x - midpoint.x) * 0.045,
+      3, midpoint.y - cells[0].y + Math.sign(sticky.y - midpoint.y) * 0.045), new Vector3(0, -1, 0));
+    const hits = ray.intersectObject(mesh); assert.equal(hits.length, 1); assert.ok(hits[0].point.y > 1);
+    geometry.dispose(); material.dispose();
+  }
+});
+test('ordinary welds, homogeneous sticky solids, and separate bodies have no adhesive junction layer', () => {
+  for (const cells of [
+    [cell(0, 0, 0, 0, 0x45), cell(1, 1, 0, 0, 0x54)],
+    [cell(0, 0, 0, 0, 0x75), cell(1, 1, 0, 0, 0x57)],
+    [cell(0, 0, 0, 0, 0x75), cell(1, 1, 0)],
+    [cell(0, 0, 0, 0, 0x75)],
+  ]) {
+    const geometry = bodyLayerGeometry(cells, 0.96), owners = geometry.getAttribute('ownerKey');
+    assert.ok(Array.from({ length: owners.count }, (_, i) => owners.getX(i)).every(owner => owner === -1));
+    geometry.dispose();
+  }
+});
 test('connected glass has an exterior rim without an internal division', () => {
   const geometry = glassRimGeometry([cell(0, 0, 0, 0, 0x55, false), cell(1, 1, 0, 0, 0x55, false)], 0.96);
   const material = new MeshBasicMaterial(), mesh = new Mesh(geometry, material); mesh.updateMatrixWorld();

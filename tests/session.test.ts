@@ -247,6 +247,36 @@ test('saved rooms gain missing outer parents while keeping their current layout'
   assert.ok(restored.states[data.hub!]); assert.ok(restored.baselines[data.root!]);
 });
 
+test('saved entrance identities restore from stable cell keys without resetting their layout or progress', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, world = data.levels.find(l => l.label === 'w3')!;
+  const main = data.levels.find(l => l.label === '3-12')!, shortcut = data.levels.find(l => l.label === '3-11-01')!;
+  const saved = createSession(world, [main.id]), key = saved.current.cells.find(c => c.portal?.target === main.id)!.key;
+  const corrupt = (state: State) => { const cell = state.cells.find(c => c.key === key)!; cell.x++; cell.temperature = 2; cell.portal!.target = shortcut.id; cell.portal!.shortcut = true; };
+  corrupt(saved.current); corrupt(saved.states[world.id]); corrupt(saved.baselines[world.id]);
+  saved.hints.push({ levelId: 'hint', state: structuredClone(saved.current) });
+  const restored = completeHierarchy(data, saved);
+  for (const state of [restored.current, restored.states[world.id], restored.baselines[world.id], restored.hints[0].state]) {
+    const cell = state.cells.find(c => c.key === key)!;
+    assert.equal(cell.portal!.target, main.id); assert.equal(cell.portal!.shortcut, false);
+    assert.equal(cell.x, saved.current.cells.find(c => c.key === key)!.x); assert.equal(cell.temperature, 2);
+  }
+  assert.deepEqual(restored.solved, saved.solved); assert.deepEqual(restored.visited, saved.visited);
+  assert.equal(saved.current.cells.find(c => c.key === key)!.portal!.target, shortcut.id);
+});
+
+test('discovering original 3-12 enables that same numbered shortcut on the world map', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset;
+  const world = data.levels.find(l => l.id === '214a0e55')!, target = data.levels.find(l => l.displayName === '3-12')!;
+  assert.equal(target.id, 'b32c8c9c');
+  const fresh = createSession(world), entrance = fresh.current.cells.find(c => c.portal?.target === target.id)!;
+  fresh.current.players = [{ x: entrance.x - 1, y: entrance.y, temperature: 0 }];
+  assert.equal(portalCandidates(data, fresh).some(c => c.key === entrance.key), false);
+  const discovered = selectSession(data, target), restored = createSession(world, [], discovered.visited);
+  restored.current.players = structuredClone(fresh.current.players);
+  assert.equal(portalCandidates(data, restored).some(c => c.key === entrance.key), true);
+  assert.equal(enterPortal(data, restored, target.id)!.current.levelId, target.id);
+});
+
 test('original 2-01 reaches its goal after balancing the rigid pair with the hot cells', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, l = data.levels.find(l => l.label === '2-01')!;
   let state = initialState(l);
