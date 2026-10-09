@@ -12,7 +12,7 @@ import { fitShadowCamera, renderPixelRatio } from './render-quality';
 import { adhesiveTexture } from './surface-materials';
 import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
-import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth } from './view-state';
+import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth, spawnPoints } from './view-state';
 import { depth, directions, opposite } from './topology';
 import { portalLabel, type levelLabels } from './level-labels';
 import { pickBodyCell } from './cell-picking';
@@ -179,6 +179,7 @@ export class GameScene {
       if (!cell.storesHeat) {
         material.map = material.normalMap = material.roughnessMap = null;
         material.transmission = 0.96; material.thickness = 0.45; material.ior = 1.33;
+        material.depthWrite = false;
         material.roughness = 0.035; material.metalness = 0; material.clearcoat = 0.6;
         material.attenuationDistance = 12; material.attenuationColor.set('#ffffff'); material.envMapIntensity = 1.1;
       }
@@ -213,6 +214,7 @@ export class GameScene {
       layer.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(layer.getAttribute('position').count * 3), 3));
       g.userData.surfaceLayer = layer;
       const insulation = this.physical('#fcfcfa'); insulation.roughness = 0.9; insulation.metalness = insulation.clearcoat = 0;
+      insulation.userData.transmissionBarrier = true;
       insulation.polygonOffset = true; insulation.polygonOffsetFactor = -2; insulation.polygonOffsetUnits = -2;
       this.mesh(layer, [insulation, this.adhesiveMaterial], g);
     } else layer.dispose();
@@ -281,12 +283,12 @@ export class GameScene {
       }
     }
     if (cells.some(c => !c.storesHeat)) {
-      // Glass attachments render after transmission so the refraction buffer cannot contain their own image.
+      // Thermal barriers occlude transmitted light; surface decorations stay outside the refraction buffer.
       const deferred = new Map<THREE.Material, THREE.Material>();
       g.traverse(object => {
         if (!(object instanceof THREE.Mesh) || object.userData.bodySurface) return;
         const defer = (material: THREE.Material) => {
-          if (material.transparent || (material as THREE.MeshPhysicalMaterial).transmission > 0) return material;
+          if (material.transparent || material.userData.transmissionBarrier || (material as THREE.MeshPhysicalMaterial).transmission > 0) return material;
           if (!deferred.has(material)) { const copy = material.clone(); copy.transparent = true; deferred.set(material, copy); }
           return deferred.get(material)!;
         };
@@ -378,6 +380,7 @@ export class GameScene {
   }
 
   load(level: Level, state: State, labels: ReturnType<typeof levelLabels>, preserveCamera = false): void {
+    preserveCamera ||= this.level?.id === level.id;
     this.cancelMotionWaits();
     if (preserveCamera) this.stopCameraInertia();
     this.hoverEvent = undefined; this.onHover?.(null);
@@ -408,6 +411,15 @@ export class GameScene {
     for (let y = 0; y <= h; y++) { matrix.makeScale(w, 1, 0.016); matrix.setPosition(0, 0.053, y - h / 2); floorGrid.setMatrixAt(w + 1 + y, matrix); }
     floorGrid.userData.transmissiveOnly = true;
     this.board.add(floorGrid);
+    for (const spawn of spawnPoints(level)) {
+      const g = new THREE.Group(); g.position.set(spawn.x - (w - 1) / 2, 0.056, spawn.y - (h - 1) / 2);
+      g.userData.spawnPoint = spawn; this.board.add(g);
+      const ink = new THREE.MeshBasicMaterial({ color: '#515960', transparent: true, depthWrite: false });
+      for (const geometry of [new THREE.RingGeometry(0.245, 0.27, 64), new THREE.CircleGeometry(0.035, 20)]) {
+        geometry.rotateX(-Math.PI / 2);
+        const mark = this.mesh(geometry, ink, g); mark.castShadow = mark.receiveShadow = false; mark.userData.transmissiveOnly = true;
+      }
+    }
     for (const goal of level.goals) {
       if (goal.x < 0 || goal.y < 0 || goal.x >= w || goal.y >= h) continue;
       const g = new THREE.Group(); g.position.set(goal.x - (w - 1) / 2, 0, goal.y - (h - 1) / 2); this.board.add(g);
@@ -550,8 +562,8 @@ export class GameScene {
       const hot = model.temperature === 1, inThought = !hot && !model.awake;
       model.group.position.lerp(model.target, factor);
       model.eyes.visible = !hot && !inThought; model.faintEyes.visible = hot; model.thinkingEyes.visible = inThought;
-      model.group.position.y = 0.055 + (!hot && moving ? Math.sin((now - this.lastStep) / 110 * Math.PI) * 0.06 : 0);
-      model.group.rotation.x = THREE.MathUtils.lerp(model.group.rotation.x, this.activity === 'pushing' && moving && !hot ? 0.22 : 0, factor);
+      model.group.position.y = 0.055;
+      model.group.rotation.x = 0;
       model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, inThought ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
     }
     this.pistonRods.forEach(p => {

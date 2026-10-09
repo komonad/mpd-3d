@@ -155,6 +155,19 @@ test('a moving compressed housing stores a supported stationary block through it
   assert.equal(s.cells[0].x, 5); assert.equal(s.cells[1].x, 5); assert.equal(s.cells[1].container, 0);
 });
 
+test('a compressed empty housing cannot contain fixed walls or blocks welded to fixed support', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const welded of [false, true]) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
+    const wall = { ...block(4 + d.x, 3 + d.y), fixed: !welded, edges: 0x55 & ~(3 << (direction * 2)) };
+    const anchor = { ...block(4 + 2 * d.x, 3 + 2 * d.y), fixed: true, edges: 0x55 & ~(3 << (((direction + 2) % 4) * 2)) };
+    const l = room([housing(), wall, anchor], [{ ...piston(0), direction }], [{ x: 4 - d.x, y: 3 - d.y }]);
+    const state = initialState(l), before = structuredClone(state);
+    assert.deepEqual(moveBoundaryDemons(l, state, direction), { moved: false, pushed: false });
+    assert.deepEqual(state, before);
+    assert.equal(move(l, before, direction), null);
+  }
+});
+
 test('unsupported housings and loads translate together without changing nesting depth', () => {
   for (const direction of [0, 2] as const) {
     const l = room([housing(), block(5, 3)], [piston(0)], [{ x: direction === 2 ? 3 : 6, y: 3 }]), s = initialState(l);

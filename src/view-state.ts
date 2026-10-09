@@ -1,4 +1,13 @@
 import { Vector3 } from 'three';
+import type { Level, Point } from './types';
+
+export function spawnPoints(level: Pick<Level, 'width' | 'height' | 'players'>): Point[] {
+  const points = new Map<string, Point>();
+  for (const { x, y } of level.players) {
+    if (x >= 0 && y >= 0 && x < level.width && y < level.height) points.set(`${x},${y}`, { x, y });
+  }
+  return [...points.values()];
+}
 
 export function followFocus(positions: readonly Vector3[]): Vector3 {
   if (!positions.length) return new Vector3(0, 0.615, 0);

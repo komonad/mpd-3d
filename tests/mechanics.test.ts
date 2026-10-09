@@ -61,6 +61,22 @@ test('surface layers batch by material and their top pattern remains continuous 
   }
   geometry.dispose();
 });
+
+test('opposite insulating faces close the inner and outer sides of a transparent block', () => {
+  for (const edges of [0x66, 0x99]) {
+    const geometry = bodyLayerGeometry([cell(0, 0, 0, 0, edges, false)], 0.96), material = new MeshBasicMaterial();
+    const mesh = new Mesh(geometry, [material, material]); mesh.updateMatrixWorld();
+    for (const sign of [-1, 1]) {
+      const horizontal = edges === 0x66, direction = new Vector3(horizontal ? sign : 0, 0, horizontal ? 0 : sign);
+      const inside = new Raycaster(new Vector3(0, 0.5, 0), direction).intersectObject(mesh)[0];
+      const outside = new Raycaster(new Vector3(horizontal ? sign * 2 : 0, 0.5, horizontal ? 0 : sign * 2), direction.clone().negate()).intersectObject(mesh)[0];
+      assert.ok(inside && outside);
+      assert.ok(inside.distance > 0.38 && inside.distance < 0.4);
+      assert.ok(outside.distance > 1.5 && outside.distance < 1.52);
+    }
+    geometry.dispose(); material.dispose();
+  }
+});
 test('joined adhesive faces retain a single checker layer with the sticky cell temperature owner', () => {
   for (const [cells, owner] of [
     [[cell(4, 0, 0, 1, 0x75), cell(5, 1, 0, 0, 0x55, false)], 4],

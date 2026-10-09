@@ -1,8 +1,32 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Mesh, MeshBasicMaterial, OrthographicCamera, Raycaster, Vector3 } from 'three';
-import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth } from '../src/view-state';
+import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth, spawnPoints } from '../src/view-state';
 import { blockHeight, bodyGeometry, exteriorHalfExtent } from '../src/body-geometry';
+import { initialState, move } from '../src/engine';
+import { createSession, enterPortal, recordState, resetSession } from '../src/session';
+import type { Dataset, Level } from '../src/types';
+
+test('spawn clues keep all level entry coordinates after motion, self-entry and reset', () => {
+  const properties = { fixed: false, storesHeat: true, temperature: 0 as const, edges: 0x55 };
+  const level: Level = { id: 'room', label: '1-1', category: 'main', width: 8, height: 6, players: [{ x: 1, y: 2 }, { x: 5, y: 2 }], goals: [], tail: [],
+    cells: [{ x: 2, y: 3, ...properties, portal: { target: 'room', shortcut: true, before: properties, after: properties } }] };
+  const data: Dataset = { version: 2, world: level.id, levels: [level], hints: {} }, session = createSession(level);
+  const points = spawnPoints(level), moved = move(level, initialState(level), 2)!;
+  recordState(session, moved, level);
+  assert.deepEqual(moved.players.map(p => [p.x, p.y]), [[2, 2], [6, 2]]);
+  const entered = enterPortal(data, session)!;
+  assert.equal(entered.current.levelId, level.id);
+  assert.deepEqual(spawnPoints(level), [{ x: 1, y: 2 }, { x: 5, y: 2 }]);
+  assert.deepEqual(spawnPoints(level), points);
+  assert.ok(resetSession(entered).current.players.length > level.players.length);
+  points[0].x = 7;
+  assert.equal(level.players[0].x, 1);
+});
+
+test('floor spawn clues coalesce shared coordinates and stay inside the board', () => {
+  assert.deepEqual(spawnPoints({ width: 8, height: 6, players: [{ x: 1, y: 2 }, { x: 1, y: 2, container: 4 }, { x: 5, y: 4 }, { x: -1, y: 2 }, { x: 8, y: 2 }] }), [{ x: 1, y: 2 }, { x: 5, y: 4 }]);
+});
 
 test('follow focus tracks all demons on the ground plane regardless of pose height', () => {
   const first = followFocus([new Vector3(-3, 0.05, 2), new Vector3(5, 0.3, -4)]);

@@ -117,7 +117,10 @@ class MotionPlan {
       const piston = boundaryPiston(this.state, c.key);
       if (piston && !piston.expanded && piston.direction === this.direction && !this.state.cells.some(child => child.container === c.key) && !this.state.players.some(child => child.container === c.key)) {
         const stored = this.state.cells.find(other => !moving.has(other.key) && address(other) === address(destination));
-        if (stored && !this.cells.has(stored.key) && !this.canTranslate(stored)) this.cells.set(stored.key, { x: stored.x, y: stored.y, container: c.key });
+        if (stored && !this.cells.has(stored.key) && !this.canTranslate(stored)) {
+          if (groups.some(body => body.some(part => part.key === stored.key) && body.some(part => part.fixed))) return false;
+          this.cells.set(stored.key, { x: stored.x, y: stored.y, container: c.key });
+        }
       }
       const resolved = this.resolve(destination, moving);
       if (!resolved) return false;
