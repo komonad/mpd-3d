@@ -235,7 +235,7 @@ export class GameScene {
     if (fixed) {
       const steel = new THREE.MeshPhysicalMaterial({ color: '#d3dadd', metalness: 0.85, roughness: 0.3 });
       const slot = new THREE.MeshBasicMaterial({ color: '#46515b' });
-      for (const p of fixedAnchorPoints(cells)) {
+      for (const p of fixedAnchorPoints(cells, exterior ? this.level : undefined)) {
         this.mesh(new THREE.CylinderGeometry(0.054, 0.054, 0.025, 6), steel, g, p.x - root.x, height + 0.071, p.y - root.y);
         this.mesh(new THREE.BoxGeometry(0.065, 0.003, 0.009), slot, g, p.x - root.x, height + 0.085, p.y - root.y);
       }

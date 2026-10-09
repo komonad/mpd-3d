@@ -119,6 +119,20 @@ test('fixed walls mark every contour turn including all inner corners', () => {
   assert.equal(fixedAnchorPoints([cell(1, 1)]).length, 0);
 });
 
+test('boundary terrain only marks interior turns across concave and multiple inner contours', () => {
+  const room = laboratory[0], walls = initialState(room).cells.filter(c => c.fixed);
+  const points = fixedAnchorPoints(walls, room);
+  assert.equal(points.length, 4);
+  assert.ok(points.every(p => p.x > 0 && p.y > 0 && p.x < room.width - 1 && p.y < room.height - 1));
+  const concave = [...walls, { ...cell(1, 1), fixed: true }];
+  assert.equal(fixedAnchorPoints(concave, room).length, 6);
+  const split = [...walls, ...Array.from({ length: room.height - 2 }, (_, i) => ({ ...cell(5, i + 1), fixed: true }))];
+  assert.equal(fixedAnchorPoints(split, room).length, 8);
+  const open = [...Array.from({ length: room.width }, (_, x) => ({ ...cell(x, 0), fixed: true })), { ...cell(4, 1), fixed: true }];
+  assert.equal(fixedAnchorPoints(open, room).length, 4);
+  assert.equal(fixedAnchorPoints([{ ...cell(3, 3), fixed: true }]).length, 4);
+});
+
 test('world progression requires completion and never opens unsupported mechanics', () => {
   const data = catalogue(level('a', [], undefined), level('b'));
   data.worlds = [1, 2, 3].map(index => ({ id: String(index), index, title: String(index), description: '', supported: index < 3 }));
