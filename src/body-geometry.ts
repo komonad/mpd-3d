@@ -113,6 +113,14 @@ export function bodyContours(cells: Pick<Cell, 'x' | 'y'>[]): Point[][] {
   }
   return contours;
 }
+export function fixedAnchorPoints(cells: Cell[]): Point[] {
+  if (!cells.some(c => c.fixed)) return [];
+  return bodyContours(cells).flatMap(points => points.map((p, i) => {
+    const prev = points[(i + points.length - 1) % points.length], next = points[(i + 1) % points.length];
+    const ax = Math.sign(p.x - prev.x), ay = Math.sign(p.y - prev.y), bx = Math.sign(next.x - p.x), by = Math.sign(next.y - p.y);
+    return { x: p.x - (ay + by) * 0.24 - 0.5, y: p.y + (ax + bx) * 0.24 - 0.5 };
+  }));
+}
 function area(points: Point[]): number { return points.reduce((sum, p, i) => { const n = points[(i + 1) % points.length]; return sum + p.x * n.y - n.x * p.y; }, 0) / 2; }
 function inset(points: Point[], amount: number): Point[] {
   return points.map((p, i) => {

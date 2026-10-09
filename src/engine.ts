@@ -53,8 +53,10 @@ export function transferHeat(level: Level, state: State): void {
       });
     }
     // Demons and transparent cells conduct heat without contributing to its balance.
-    const sum = component.reduce((s, c) => s + (c.storesHeat ? c.temperature : 0), 0);
-    const temperature: Temperature = outside ? state.outside : Math.sign(sum) as Temperature;
+    const sum = component.reduce((s, c) => s + (c.storesHeat && c.temperature !== 2 ? c.temperature : 0), 0);
+    const retentive = component.some(c => c.storesHeat && c.temperature === 2);
+    const balance: Temperature = sum ? Math.sign(sum) as Temperature : retentive || outside && state.outside === 2 ? 2 : 0;
+    const temperature: Temperature = outside && state.outside !== 2 ? state.outside : balance;
     for (const c of component) {
       if (c.key < 0) state.players[-c.key - 1].temperature = temperature;
       else c.temperature = temperature;
@@ -71,7 +73,9 @@ export function move(level: Level, state: State, direction: Direction): State | 
   if (state.solved || state.frozen || state.phase === 'cycling') return null;
   const next = cloneState(state), d = directions[direction];
   let didMove = false, pushed = false;
-  for (let index = 0; index < next.players.length; index++) {
+  const order = next.players.map((p, i) => ({ i, distance: p.x * d.x + p.y * d.y })).sort((a, b) => b.distance - a.distance || a.i - b.i);
+  const movedCells = new Set<number>();
+  for (const { i: index } of order) {
     const player = next.players[index];
     if (player.temperature === 1) continue;
     const x = player.x + d.x, y = player.y + d.y;
@@ -80,7 +84,8 @@ export function move(level: Level, state: State, direction: Direction): State | 
     if (target && passiveCompression(level, next, target, direction)) pushed = true;
     else {
       const plan = pushPlan(level, next, x, y, direction, false, index); if (!plan) continue;
-      applyPush(next, plan, direction); if (plan.cells.size) pushed = true;
+      if ([...plan.cells].some(key => movedCells.has(key))) continue;
+      applyPush(next, plan, direction); plan.cells.forEach(key => movedCells.add(key)); if (plan.cells.size) pushed = true;
     }
     player.x = x; player.y = y; didMove = true;
   }

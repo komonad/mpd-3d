@@ -57,9 +57,10 @@ test('solved portals load their transformed properties', () => {
 
 const dataset = fs.existsSync('public/levels.local.json') ? JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset : null;
 test('local import contains the complete first-world catalogue', { skip: !dataset }, () => {
-  assert.equal(dataset!.levels.filter(l => l.category === 'main').length, 20);
-  assert.equal(dataset!.levels.filter(l => l.category === 'extra').length, 7);
-  assert.ok(dataset!.levels.every(l => l.players.length === 1));
+  const first = dataset!.levels.filter(l => !l.worldId || l.worldId === dataset!.world);
+  assert.equal(first.filter(l => l.category === 'main').length, 20);
+  assert.equal(first.filter(l => l.category === 'extra').length, 7);
+  assert.ok(first.every(l => l.players.length === 1));
   assert.equal(dataset!.levels.find(l => l.label === 'w1?')!.notes!.length, 15);
   assert.ok(dataset!.levels.find(l => l.label === 'w1?')!.notes!.every(n => !n.text.startsWith('w1/')));
 });
