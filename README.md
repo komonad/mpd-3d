@@ -1,6 +1,6 @@
 # Maxwell · 3D
 
-A local Three.js adaptation of the first world of Maxwell's puzzling demon. The renderer uses ceramic and metal PBR materials, procedural surface grain, an orthographic camera, shadows, ambient occlusion, and bloom.
+A local Three.js adaptation of the first world of Maxwell's puzzling demon. All grid blocks use cubic dimensions. Rigid bodies have continuous surfaces, including concave outlines and holes. Solid-color PBR materials distinguish matte housings, coated blocks, polished metal, adhesive gel, and transmitting glass. Insulation and adhesive layers cover vertical faces and expose their cross-sections on top. Layer meshes follow continuous contours with rounded corner joints. The renderer uses a supersampled, multisampled orthographic view, shadows, and ambient occlusion.
 
 ## Run
 
@@ -39,9 +39,12 @@ Progress and the current scene are saved in browser local storage. The level bro
 
 - World 1: 20 main puzzles, 7 extra puzzles, world map, and hint scenes (65 imported scenes).
 - Atomic grid movement, welded multi-cell rigid bodies, fixed anchors, heat conduction, partial insulation, outside temperature, demon heat conduction, goal validation, portal transformations.
+- Six independent laboratory scenes cover materials, transparent conduction, adhesive bodies, anchored thermal pistons, transient overheating, and demon poses. Laboratories do not count toward first-world completion.
+- The demon has a spherical body matching the block width, with horns, eyes, limbs, and a tail. Its body and thermal core change color with temperature. Overheating produces a collapsed pose; idle thought and movement have separate animations. Piston turns display movement and heat phases before presenting the final state. Undo and reset can interrupt this playback.
+- Anchored laboratory pistons expand when hot, retract when cold, and gain heat when manually compressed. Expansion can push cells and demons. Completion and movement locks are evaluated after automatic thermal actions settle.
 - A level exit resets the parent layout and emits the demon in its entry direction. Entering a portal inherits its temperature as the child's outside reservoir.
 
-Worlds 2–9, pistons, the fourth temperature, multiple demons, recursive shortcut traversal, and cross-world meta puzzles are outside the playable scope. The importer rejects unsupported tile types rather than approximating them. Mechanics are reconstructed from local level data and the game's built-in explanations; parity with the original executable needs further side-by-side validation.
+Worlds 2–9, original piston level import, movable and nested pistons, piston inventories, indirect compression, the fourth temperature, multiple-demon rendering, recursive shortcut traversal, and cross-world meta puzzles are outside the playable scope. The importer rejects unsupported tile types rather than approximating them. Laboratory pistons use an anchored housing and a single head. Mechanics are reconstructed from local level data and the game's built-in explanations; parity with the original executable needs further side-by-side validation.
 
 ## Development
 
@@ -51,6 +54,6 @@ npm run build
 npm run preview
 ```
 
-`src/engine.ts` contains pure grid and heat simulation. `src/scene.ts` renders the state without deciding movement. `src/main.ts` handles navigation, history, local persistence, and controls. `scripts/mxw.mjs` decodes the grid stream; `scripts/import-levels.mjs` selects the first world from the hierarchy.
+`src/engine.ts` contains pure grid and heat simulation; `src/pistons.ts` settles anchored thermal actions. `src/body-geometry.ts` constructs continuous body surfaces and side coatings. `src/scene.ts` renders the state without deciding movement. `src/main.ts` handles navigation, history, local persistence, phase playback, and controls. `scripts/mxw.mjs` decodes the grid stream; `scripts/import-levels.mjs` selects the first world from the hierarchy.
 
 MXW block flags use bit 0 for fixed anchors, bit 1 for heat storage, and bits 2–3 for temperature. Two-bit edge codes are ordered west, south, east, north: absent/welded, conducting, insulated, sticky. Heat transfer evaluates connected components simultaneously; demons and transparent blocks contribute zero to the heat balance.

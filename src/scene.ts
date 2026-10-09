@@ -5,26 +5,13 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { bodies, edge } from './engine';
+import { bodies } from './engine';
+import { bodyLayerGeometry, bodyGeometry } from './body-geometry';
 import type { Cell, Level, State, Temperature } from './types';
 
-const palette = { wall: '#677a77', neutral: '#e0bb79', hot: '#f47c4f', cold: '#79c9dd', demon: '#334b46', floor: '#e1dfd2', ink: '#263e39' };
+const palette = { wall: '#69747e', neutral: '#89949e', hot: '#d94e28', cold: '#298fcd', demon: '#8998a3', floor: '#b8b8ad', ink: '#263e39' };
 const thermalColor = (t: Temperature) => t === 1 ? palette.hot : t === -1 ? palette.cold : palette.neutral;
-
-function grainTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d')!; const data = ctx.createImageData(256, 256);
-  let seed = 813;
-  for (let i = 0; i < data.data.length; i += 4) {
-    seed = (seed * 16807) % 2147483647;
-    const v = 220 + (seed % 30); data.data[i] = data.data[i + 1] = data.data[i + 2] = v; data.data[i + 3] = 255;
-  }
-  ctx.putImageData(data, 0, 0); const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
 
 function labelTexture(text: string, dark = false): THREE.CanvasTexture {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
@@ -40,12 +27,22 @@ export class GameScene {
   readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
   private readonly ao: SSAOPass;
-  private readonly bloom: UnrealBloomPass;
   private board = new THREE.Group();
   private pieces = new Map<number, THREE.Group>();
   private demon = new THREE.Group();
-  private demonMaterial = new THREE.MeshPhysicalMaterial({ color: palette.demon, roughness: 0.4, clearcoat: 0.5 });
-  private texture = grainTexture();
+  private demonMaterial = new THREE.MeshPhysicalMaterial({ color: palette.demon, roughness: 0.45, metalness: 0.12, clearcoat: 0.3, clearcoatRoughness: 0.35 });
+  private coreMaterial = new THREE.MeshPhysicalMaterial({ color: '#d9e2e4', emissive: '#9cbbcc', emissiveIntensity: 0.2, roughness: 0.18, metalness: 0.25 });
+  private parts = new THREE.Group();
+  private bodySignature = '';
+  private labels = new Map<string, string>();
+  private shownState?: State;
+  private thinking = new THREE.Group();
+  private eyes = new THREE.Group();
+  private faintEyes = new THREE.Group();
+  private arms: THREE.Mesh[] = [];
+  private temperature: Temperature = 0;
+  private activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle';
+  private pistonRods: { rod: THREE.Mesh; target: number; direction: number }[] = [];
   private level?: Level;
   private previousTime = performance.now();
   private targets = new Map<number, THREE.Vector3>();
@@ -65,10 +62,12 @@ export class GameScene {
   onHover?: (cellKey: number | null) => void;
   onPortalClick?: (target: string) => void;
   onNoteClick?: (text: string) => void;
+  onStatus?: (temperature: Temperature, status: string) => void;
+  private status = '';
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(Math.max(devicePixelRatio, 1.5), 2.5));
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor('#162523', 0);
@@ -76,7 +75,7 @@ export class GameScene {
     this.host.append(this.renderer.domElement);
     const pmrem = new THREE.PMREMGenerator(this.renderer), environment = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(environment, 0.04).texture; environment.dispose(); pmrem.dispose();
-    this.scene.environmentIntensity = 0.4;
+    this.scene.environmentIntensity = 0.65;
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true; this.controls.dampingFactor = 0.08;
     this.controls.enablePan = true; this.controls.minZoom = 0.6; this.controls.maxZoom = 2.2;
@@ -85,20 +84,20 @@ export class GameScene {
     this.controls.touches.ONE = THREE.TOUCH.ROTATE;
 
     this.scene.add(new THREE.HemisphereLight('#ecf1de', '#597d78', 1.1));
-    const sun = new THREE.DirectionalLight('#fff0cc', 2.5); sun.position.set(-9, 16, 7); sun.castShadow = true;
+    const sun = new THREE.DirectionalLight('#fff6e8', 2.5); sun.position.set(-9, 16, 7); sun.castShadow = true;
     sun.shadow.mapSize.set(4096, 4096); sun.shadow.camera.left = sun.shadow.camera.bottom = -34;
     sun.shadow.camera.right = sun.shadow.camera.top = 34; sun.shadow.camera.near = 1; sun.shadow.camera.far = 70;
     sun.shadow.normalBias = 0.035; sun.shadow.bias = -0.00015; sun.shadow.radius = 3; this.scene.add(sun);
     const fill = new THREE.DirectionalLight('#a4d4e3', 0.8); fill.position.set(7, 10, -10); this.scene.add(fill);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: '#0a1812', roughness: 0.84, metalness: 0.12 }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.23 }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.58; ground.receiveShadow = true; this.scene.add(ground);
-    this.composer = new EffectComposer(this.renderer);
+    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    this.composer = new EffectComposer(this.renderer, renderTarget);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.ao = new SSAOPass(this.scene, this.camera, 1, 1); this.ao.kernelRadius = 0.28; this.ao.minDistance = 0.001; this.ao.maxDistance = 0.18;
+    this.ao = new SSAOPass(this.scene, this.camera, 1, 1, 16); this.ao.kernelRadius = 0.16; this.ao.minDistance = 0.001; this.ao.maxDistance = 0.1;
     this.ao.ssaoMaterial.defines.PERSPECTIVE_CAMERA = 0;
     this.ao.depthRenderMaterial.defines.PERSPECTIVE_CAMERA = 0;
     this.composer.addPass(this.ao);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.1, 0.25, 2.8); this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.scene.add(this.board);
     new ResizeObserver(() => this.resize()).observe(host);
@@ -114,61 +113,123 @@ export class GameScene {
   }
 
   private physical(color: string, wall = false): THREE.MeshPhysicalMaterial {
-    return new THREE.MeshPhysicalMaterial({ color, map: this.texture, bumpMap: this.texture, bumpScale: wall ? 0.012 : 0.004,
-      roughness: wall ? 0.7 : 0.24, metalness: wall ? 0.08 : 0.05, clearcoat: wall ? 0.08 : 0.7, clearcoatRoughness: 0.25 });
+    return new THREE.MeshPhysicalMaterial({ color, roughness: wall ? 0.72 : 0.38, metalness: wall ? 0.08 : 0.12,
+      clearcoat: wall ? 0.08 : 0.4, clearcoatRoughness: 0.2 });
   }
 
-  private mesh(geometry: THREE.BufferGeometry, material: THREE.Material, parent: THREE.Object3D, x = 0, y = 0, z = 0): THREE.Mesh {
+  private mesh(geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], parent: THREE.Object3D, x = 0, y = 0, z = 0): THREE.Mesh {
     const object = new THREE.Mesh(geometry, material); object.position.set(x, y, z); object.castShadow = true; object.receiveShadow = true;
     parent.add(object); return object;
   }
 
   private makeDemon(): THREE.Group {
     const g = new THREE.Group(), m = this.demonMaterial;
-    this.mesh(new THREE.SphereGeometry(0.255, 24, 16), m, g, 0, 0.39, 0).scale.set(0.95, 1.18, 0.85);
-    this.mesh(new THREE.SphereGeometry(0.28, 24, 16), m, g, 0, 0.7, 0);
-    const hornMaterial = this.physical('#b9d1ac');
+    this.eyes = new THREE.Group(); this.faintEyes = new THREE.Group(); this.thinking = new THREE.Group(); this.arms = [];
+    g.add(this.eyes, this.faintEyes, this.thinking);
+    this.mesh(new THREE.SphereGeometry(0.48, 40, 32), m, g, 0, 0.56, 0);
+    this.mesh(new THREE.TorusGeometry(0.11, 0.018, 12, 32), this.physical('#33414a'), g, 0, 0.37, 0.443);
+    this.mesh(new THREE.SphereGeometry(0.096, 24, 16), this.coreMaterial, g, 0, 0.37, 0.452).scale.z = 0.32;
+    const hornMaterial = this.physical('#d5dbdd'); hornMaterial.metalness = 0.65; hornMaterial.roughness = 0.32;
     for (const side of [-1, 1]) {
-      const horn = this.mesh(new THREE.ConeGeometry(0.105, 0.3, 16), hornMaterial, g, side * 0.205, 0.96, -0.02); horn.rotation.z = -side * 0.35;
-      this.mesh(new THREE.SphereGeometry(0.07, 16, 10), m, g, side * 0.13, 0.13, 0.025).scale.set(1, 0.65, 1.5);
-      this.mesh(new THREE.SphereGeometry(0.084, 20, 12), this.physical('#f5f0e2'), g, side * 0.108, 0.72, 0.235).scale.set(1, 1.05, 0.45);
-      this.mesh(new THREE.SphereGeometry(0.039, 16, 12), this.physical('#1c2e2b'), g, side * 0.105, 0.723, 0.27).scale.set(1, 1.2, 0.35);
-      const arm = this.mesh(new THREE.CapsuleGeometry(0.055, 0.19, 4, 12), m, g, side * 0.28, 0.39, 0.02); arm.rotation.z = -side * 0.24;
+      const horn = this.mesh(new THREE.ConeGeometry(0.105, 0.28, 20), hornMaterial, g, side * 0.30, 1.01, -0.02); horn.rotation.z = -side * 0.35;
+      this.mesh(new THREE.SphereGeometry(0.09, 20, 12), m, g, side * 0.20, 0.06, 0.09).scale.set(1, 0.65, 1.5);
+      this.mesh(new THREE.SphereGeometry(0.125, 24, 16), this.physical('#f5f0e2'), this.eyes, side * 0.18, 0.68, 0.435).scale.set(1, 1.05, 0.35);
+      this.mesh(new THREE.SphereGeometry(0.055, 20, 12), this.physical('#1c2e2b'), this.eyes, side * 0.18, 0.687, 0.48).scale.set(1, 1.2, 0.35);
+      for (const slope of [-1, 1]) {
+        const stroke = this.mesh(new THREE.CapsuleGeometry(0.016, 0.155, 3, 8), this.physical('#2b3034'), this.faintEyes, side * 0.18, 0.68, 0.485);
+        stroke.rotation.z = slope * Math.PI / 4;
+      }
+      const arm = this.mesh(new THREE.CapsuleGeometry(0.055, 0.19, 4, 12), m, g, side * 0.46, 0.47, 0.02); arm.rotation.z = -side * 0.24; this.arms.push(arm);
     }
-    const tail = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.3, -0.12), new THREE.Vector3(0.27, 0.25, -0.27), new THREE.Vector3(0.34, 0.47, -0.3)]);
+    const tail = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0.4, -0.42), new THREE.Vector3(0.32, 0.27, -0.5), new THREE.Vector3(0.5, 0.47, -0.45)]);
     this.mesh(new THREE.TubeGeometry(tail, 12, 0.025, 8, false), m, g);
-    const tip = this.mesh(new THREE.ConeGeometry(0.07, 0.16, 3), hornMaterial, g, 0.34, 0.49, -0.3); tip.rotation.z = -0.6;
+    const tip = this.mesh(new THREE.ConeGeometry(0.07, 0.16, 3), hornMaterial, g, 0.5, 0.49, -0.45); tip.rotation.z = -0.6;
+    this.mesh(new THREE.SphereGeometry(0.17, 24, 16), this.physical('#e5e7de'), this.thinking, 0.5, 1.36, 0).scale.set(1.65, 0.85, 0.55);
+    this.mesh(new THREE.SphereGeometry(0.037, 12, 8), this.physical('#d5ddd9'), this.thinking, 0.38, 1.17, 0);
+    for (let i = 0; i < 3; i++) this.mesh(new THREE.SphereGeometry(0.025, 12, 8), this.physical('#50636b'), this.thinking, 0.39 + i * 0.105, 1.36, 0.087);
+    this.thinking.visible = this.faintEyes.visible = false;
     return g;
   }
 
-  private makePiece(cell: Cell, fixed: boolean): THREE.Group {
-    const g = new THREE.Group(); g.userData.key = cell.key; g.userData.portal = cell.portal?.target;
-    const height = fixed ? 0.45 : 0.7;
-    const material = this.physical(fixed && cell.temperature === 0 ? palette.wall : thermalColor(cell.temperature), fixed);
-    if (cell.temperature === -1 && !fixed) { material.transmission = 0.15; material.thickness = 0.9; material.ior = 1.35; material.roughness = 0.19; }
-    if (cell.temperature === 1) { material.emissive.set('#fa4d15'); material.emissiveIntensity = 0.12; }
-    const core = this.mesh(new RoundedBoxGeometry(0.97, height, 0.97, 3, fixed ? 0.055 : 0.095), material, g, 0, height / 2 + 0.055, 0);
-    core.userData.key = cell.key; core.userData.portal = cell.portal?.target;
-    g.userData.material = material;
-    if (!fixed) {
-      const cap = this.mesh(new RoundedBoxGeometry(0.65, 0.022, 0.65, 2, 0.04), this.physical(thermalColor(cell.temperature)), g, 0, height + 0.067, 0);
-      g.userData.capMaterial = cap.material;
-      const symbol = cell.portal ? cell.portal.target : cell.temperature === 1 ? '↑' : cell.temperature === -1 ? '↓' : '·';
-      const mark = this.mesh(new THREE.PlaneGeometry(0.42, 0.42), new THREE.MeshBasicMaterial({ map: labelTexture(cell.portal ? '' : symbol), transparent: true, depthWrite: false }), g, 0, height + 0.082, 0);
-      mark.rotation.x = -Math.PI / 2; mark.castShadow = false; g.userData.mark = mark;
-    }
-    if (cell.fixed) {
-      const pin = this.mesh(new THREE.CylinderGeometry(0.038, 0.045, 0.018, 12), new THREE.MeshStandardMaterial({ color: '#cad3ca', metalness: 0.8, roughness: 0.3 }), g, 0.29, height + 0.068, 0.29);
-      pin.castShadow = false;
-    }
-    // Ivory strips denote insulation on the corresponding face of a cell.
-    for (let dir = 0; dir < 4; dir++) {
-      if (edge(cell, dir) !== 2) continue;
-      const horizontal = dir % 2 === 1;
-      this.mesh(new RoundedBoxGeometry(horizontal ? 0.89 : 0.045, 0.045, horizontal ? 0.045 : 0.89, 2, 0.014), this.physical('#f1ebd8'), g,
-        dir === 0 ? -0.46 : dir === 2 ? 0.46 : 0, height + 0.073, dir === 1 ? 0.46 : dir === 3 ? -0.46 : 0);
+  private paint(material: THREE.MeshPhysicalMaterial, cell: Cell, fixed: boolean): void {
+    material.color.set(cell.storesHeat ? fixed && cell.temperature === 0 ? palette.wall : thermalColor(cell.temperature) : cell.temperature === 0 ? '#e7f4f9' : thermalColor(cell.temperature));
+    material.emissive.set(cell.temperature === 1 ? '#e64b18' : cell.temperature === -1 ? '#19567a' : '#000000');
+    material.emissiveIntensity = cell.temperature === 1 ? 0.06 : cell.temperature === -1 ? 0.025 : 0;
+  }
+
+  private makeBody(cells: Cell[], state: State): THREE.Group {
+    const root = cells[0], g = new THREE.Group(), fixed = cells.some(c => c.fixed);
+    const height = 0.96;
+    const uniform = cells.every(c => c.storesHeat === root.storesHeat && c.temperature === root.temperature);
+    const materials = (uniform ? [root] : cells).map(cell => {
+      const material = this.physical(thermalColor(cell.temperature), fixed); this.paint(material, cell, fixed);
+      if (!cell.storesHeat) {
+        material.map = material.normalMap = material.roughnessMap = null;
+        material.transmission = 1; material.thickness = 0.85; material.ior = 1.45;
+        material.roughness = 0.07; material.metalness = 0; material.clearcoat = 1; material.attenuationDistance = 5; material.attenuationColor.set('#e8f5fa');
+      }
+      return material;
+    });
+    const core = new THREE.Mesh(bodyGeometry(cells, height), materials); core.castShadow = cells.some(c => c.storesHeat); core.receiveShadow = true; g.add(core);
+    g.userData.key = root.key; g.userData.cellKeys = cells.map(c => c.key); g.userData.materials = materials; g.userData.uniform = uniform;
+    const delta = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+    const layer = bodyLayerGeometry(cells, height);
+    if (layer.getAttribute('position').count) {
+      const insulation = this.physical('#f2edda'), adhesive = this.physical('#a7d365');
+      insulation.roughness = 0.9; adhesive.roughness = 0.17; adhesive.clearcoat = 1; adhesive.emissive.set('#73952e'); adhesive.emissiveIntensity = 0.1;
+      this.mesh(layer, [insulation, adhesive], g);
+    } else layer.dispose();
+    for (const cell of cells) {
+      const x = cell.x - root.x, z = cell.y - root.y;
+      if (cell.portal) {
+        const mark = this.mesh(new THREE.PlaneGeometry(0.58, 0.58), new THREE.MeshBasicMaterial({ map: labelTexture(this.labels.get(cell.portal.target)?.replace('1-', '') ?? '↗', fixed), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
+        mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.portal = cell.portal.target;
+      }
+      if (cell.fixed && cell.key === cells.find(c => c.fixed)!.key) this.mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.018, 16), this.physical('#d3dadd'), g, x + 0.29, height + 0.064, z + 0.29);
+      const piston = state.pistons?.find(p => p.baseKey === cell.key);
+      if (piston) {
+        const metal = new THREE.MeshPhysicalMaterial({ color: '#5f737f', metalness: 0.85, roughness: 0.26 });
+        for (const a of [-1, 1]) for (const b of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.09, 1.04, 0.09, 3, 0.018), metal, g, x + a * 0.46, 0.575, z + b * 0.46);
+        for (const side of [-1, 1]) {
+          this.mesh(new RoundedBoxGeometry(0.98, 0.075, 0.085, 3, 0.018), metal, g, x, 1.075, z + side * 0.46);
+          this.mesh(new RoundedBoxGeometry(0.085, 0.075, 0.98, 3, 0.018), metal, g, x + side * 0.46, 1.075, z);
+        }
+        const mark = this.mesh(new THREE.PlaneGeometry(0.54, 0.54), new THREE.MeshBasicMaterial({ map: labelTexture(['←', '↓', '→', '↑'][piston.direction]), transparent: true, depthWrite: false }), g, x, 1.125, z);
+        mark.rotation.x = -Math.PI / 2;
+        const rod = this.mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.8, 24), metal, g, x, 0.54, z);
+        if (piston.direction % 2 === 0) rod.rotation.z = Math.PI / 2; else rod.rotation.x = Math.PI / 2;
+        rod.userData.base = new THREE.Vector3(x, 0.54, z); this.pistonRods.push({ rod, target: piston.expanded ? 1 : 0.02, direction: piston.direction });
+      }
+      const head = state.pistons?.find(p => p.headKey === cell.key && p.expanded);
+      if (head) {
+        const d = delta[head.direction], horizontal = head.direction % 2 === 1;
+        this.mesh(new RoundedBoxGeometry(horizontal ? 0.8 : 0.065, 0.8, horizontal ? 0.065 : 0.8, 3, 0.025), new THREE.MeshPhysicalMaterial({ color: '#abc2cd', metalness: 0.85, roughness: 0.23 }), g, x + d[0] * 0.46, 0.53, z + d[1] * 0.46);
+      }
     }
     return g;
+  }
+
+  private syncBodies(state: State, snap: boolean): void {
+    const groups = bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key));
+    const signature = JSON.stringify(groups.map(g => [g.map(c => [c.key, c.edges, c.storesHeat]), g.every(c => c.temperature === g[0].temperature && c.storesHeat === g[0].storesHeat)]));
+    if (signature !== this.bodySignature) {
+      const positions = new Map([...this.pieces].map(([key, g]) => [key, g.position.clone()]));
+      this.board.remove(this.parts); this.disposeGroup(this.parts); this.parts = new THREE.Group(); this.board.add(this.parts);
+      this.pieces.clear(); this.targets.clear(); this.pistonRods = []; this.bodySignature = signature;
+      for (const cells of groups) {
+        const group = this.makeBody(cells, state), root = cells[0];
+        const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
+        group.position.copy(!snap && positions.has(root.key) ? positions.get(root.key)! : target);
+        this.parts.add(group); this.pieces.set(root.key, group);
+      }
+    }
+    for (const cells of groups) {
+      const root = cells[0], group = this.pieces.get(root.key)!;
+      const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
+      this.targets.set(root.key, target); if (snap) group.position.copy(target);
+      const materials = group.userData.materials as THREE.MeshPhysicalMaterial[];
+      materials.forEach((m, i) => this.paint(m, group.userData.uniform ? root : cells[i], cells.some(c => c.fixed)));
+    }
   }
 
   load(level: Level, state: State, labels: Map<string, string>): void {
@@ -176,6 +237,7 @@ export class GameScene {
     this.board = new THREE.Group(); this.scene.add(this.board); this.level = level;
     this.controls.maxZoom = level.category === 'world' ? 5 : 2.2;
     this.pieces.clear(); this.targets.clear(); this.rings = []; this.goalLights = []; this.gridMeshes = []; this.noteMarkers = [];
+    this.parts = new THREE.Group(); this.board.add(this.parts); this.bodySignature = ''; this.labels = labels; this.shownState = state;
     const w = level.width, h = level.height;
     const platform = this.mesh(new RoundedBoxGeometry(w + 0.55, 0.45, h + 0.55, 4, 0.16), this.physical('#e4ded0'), this.board, 0, -0.205, 0);
     platform.receiveShadow = true;
@@ -185,23 +247,6 @@ export class GameScene {
     const matrix = new THREE.Matrix4();
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { matrix.makeTranslation(x - (w - 1) / 2, 0.025, y - (h - 1) / 2); tiles.setMatrixAt(y * w + x, matrix); }
     tiles.receiveShadow = true; this.board.add(tiles);
-    const fixedKeys = new Set(bodies(state.cells).filter(b => b.some(c => c.fixed)).flat().map(c => c.key));
-    const lookup = new Map(state.cells.map(c => [`${c.x},${c.y}`, c]));
-    for (const cell of state.cells) {
-      const fixed = fixedKeys.has(cell.key), group = this.makePiece(cell, fixed);
-      group.position.set(cell.x - (w - 1) / 2, 0, cell.y - (h - 1) / 2);
-      for (const [dir, dx, dy] of [[2, 1, 0], [1, 0, 1]]) {
-        const neighbor = lookup.get(`${cell.x + dx},${cell.y + dy}`);
-        if (fixed || edge(cell, dir) !== 0 || !neighbor || edge(neighbor, (dir + 2) % 4) !== 0) continue;
-        this.mesh(new RoundedBoxGeometry(dx ? 0.16 : 0.88, 0.54, dy ? 0.16 : 0.88, 2, 0.02), group.userData.material, group, dx * 0.5, 0.4, dy * 0.5);
-      }
-      if (cell.portal) {
-        const text = labels.get(cell.portal.target)?.replace('1-', '') ?? '↗';
-        const mark = this.mesh(new THREE.PlaneGeometry(0.58, 0.58), new THREE.MeshBasicMaterial({ map: labelTexture(text, fixed), transparent: true, depthWrite: false }), group, 0, (fixed ? 0.45 : 0.7) + 0.09, 0);
-        mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.portal = cell.portal.target;
-      }
-      this.board.add(group); this.pieces.set(cell.key, group); this.targets.set(cell.key, group.position.clone());
-    }
     for (const goal of level.goals) {
       if (goal.x < 0 || goal.y < 0 || goal.x >= w || goal.y >= h) continue;
       const g = new THREE.Group(); g.position.set(goal.x - (w - 1) / 2, 0, goal.y - (h - 1) / 2); this.board.add(g);
@@ -222,36 +267,34 @@ export class GameScene {
     this.controls.target.set(0, 0, 0); this.camera.zoom = 1; this.resetCamera(); this.resize(); this.update(state, true);
   }
 
-  update(state: State, snap = false): void {
+  update(state: State, snap = false, activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle'): void {
     if (!this.level) return;
     const { width: w, height: h } = this.level;
-    const fixedKeys = new Set(bodies(state.cells).filter(b => b.some(c => c.fixed)).flat().map(c => c.key));
-    for (const cell of state.cells) {
-      const group = this.pieces.get(cell.key); if (!group) continue;
-      const target = new THREE.Vector3(cell.x - (w - 1) / 2, 0, cell.y - (h - 1) / 2); this.targets.set(cell.key, target);
-      if (snap) group.position.copy(target);
-      const material = group.userData.material as THREE.MeshPhysicalMaterial;
-      const fixed = fixedKeys.has(cell.key);
-      material.color.set(fixed && cell.temperature === 0 ? palette.wall : thermalColor(cell.temperature));
-      material.emissive.set(cell.temperature === 1 ? '#fa4d15' : '#000000'); material.emissiveIntensity = cell.temperature === 1 ? 0.12 : 0;
-      if (group.userData.capMaterial) (group.userData.capMaterial as THREE.MeshPhysicalMaterial).color.set(thermalColor(cell.temperature));
-      if (group.userData.mark && !cell.portal) {
-        const mark = group.userData.mark as THREE.Mesh; const m = mark.material as THREE.MeshBasicMaterial;
-        const symbol = cell.temperature === 1 ? '↑' : cell.temperature === -1 ? '↓' : '·';
-        if (mark.userData.symbol !== symbol) { m.map?.dispose(); m.map = labelTexture(symbol); m.needsUpdate = true; mark.userData.symbol = symbol; }
-      }
-    }
+    this.shownState = state; this.activity = activity; this.syncBodies(state, snap);
     if (state.players[0]) {
+      const previous = this.demonTarget.clone();
       this.demonTarget.set(state.players[0].x - (w - 1) / 2, 0.055, state.players[0].y - (h - 1) / 2);
+      if (previous.distanceTo(this.demonTarget) > 0.1 && !snap) this.demon.rotation.y = Math.atan2(this.demonTarget.x - previous.x, this.demonTarget.z - previous.z);
+      if (snap) this.demon.rotation.y = 0;
       if (snap) this.demon.position.copy(this.demonTarget);
-      this.demonMaterial.color.set(state.players[0].temperature === 1 ? '#af5542' : state.players[0].temperature === -1 ? '#408c97' : palette.demon);
+      this.temperature = state.players[0].temperature;
+      this.demonMaterial.color.set(this.temperature === 0 ? palette.demon : thermalColor(this.temperature));
+      this.demonMaterial.emissive.set(this.temperature === 1 ? '#e64617' : this.temperature === -1 ? '#1673b3' : '#000000');
+      this.demonMaterial.emissiveIntensity = this.temperature === 0 ? 0 : 0.09;
+      this.coreMaterial.color.set(this.temperature === 0 ? '#d9e2e4' : thermalColor(this.temperature));
+      this.coreMaterial.emissive.set(this.temperature === 0 ? '#9cbbcc' : thermalColor(this.temperature));
+      this.coreMaterial.emissiveIntensity = this.temperature === 0 ? 0.2 : 0.8;
     }
+    this.pistonRods.forEach(p => {
+      const group = p.rod.parent!, piston = state.pistons?.find(a => group.userData.cellKeys.includes(a.baseKey));
+      p.target = piston?.expanded ? 1 : 0.02; if (snap) p.rod.scale.y = p.target;
+    });
     this.lastStep = performance.now();
   }
 
   setTilt(degrees: number): void { if (this.tilt === degrees) return; this.tilt = degrees; this.resetCamera(); }
   setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { m.visible = visible; }); }
-  setQuality(high: boolean): void { if (this.quality === high) return; this.quality = high; this.ao.enabled = high; this.bloom.enabled = high; this.renderer.setPixelRatio(Math.min(devicePixelRatio, high ? 2 : 1)); this.resize(); }
+  setQuality(high: boolean): void { this.quality = high; this.ao.enabled = high; const ratio = high ? Math.min(Math.max(devicePixelRatio, 1.5), 2.5) : Math.min(devicePixelRatio, 1.5); this.renderer.setPixelRatio(ratio); this.composer.setPixelRatio(ratio); this.resize(); }
   setExposure(exposure: number): void { this.renderer.toneMappingExposure = exposure; }
   resetCamera(): void {
     const angle = THREE.MathUtils.degToRad(this.tilt), yaw = THREE.MathUtils.degToRad(this.azimuth);
@@ -276,7 +319,14 @@ export class GameScene {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    return this.raycaster.intersectObjects([...this.pieces.values(), ...this.noteMarkers], true)[0]?.object;
+    const hit = this.raycaster.intersectObjects([...this.pieces.values(), ...this.noteMarkers], true)[0];
+    if (!hit) return;
+    if (!hit.object.userData.note) {
+      const x = Math.round(hit.point.x + (this.level!.width - 1) / 2), y = Math.round(hit.point.z + (this.level!.height - 1) / 2);
+      const cell = this.shownState?.cells.find(c => c.x === x && c.y === y);
+      hit.object.userData.key = cell?.key; hit.object.userData.portal = cell?.portal?.target;
+    }
+    return hit.object;
   }
   private hover(event: PointerEvent): void { const hit = this.hit(event); this.onHover?.(hit?.userData.key ?? hit?.parent?.userData.key ?? null); }
   private animate(): void {
@@ -286,19 +336,35 @@ export class GameScene {
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
     this.demon.position.lerp(this.demonTarget, factor);
     const moving = now - this.lastStep < 170;
-    this.demon.position.y = 0.055 + (moving ? Math.sin((now - this.lastStep) / 170 * Math.PI) * 0.075 : Math.sin(now * 0.0025) * 0.008);
+    const hot = this.temperature === 1, thinking = !hot && (now - this.lastStep > 5000 || this.shownState?.phase === 'cycling');
+    const status = this.activity === 'resolving' ? hot ? '假死 · 结算中' : '热量结算中' : hot ? '假死' : thinking ? '思考' : moving && this.activity === 'pushing' ? '推动' : moving ? '移动' : '待机';
+    const statusKey = `${this.temperature}:${status}`;
+    if (statusKey !== this.status) { this.status = statusKey; this.onStatus?.(this.temperature, status); }
+    this.thinking.visible = thinking; this.eyes.visible = !hot; this.faintEyes.visible = hot;
+    this.demon.position.y = (hot ? 0.16 : 0.055) + (!hot && moving ? Math.sin((now - this.lastStep) / 170 * Math.PI) * 0.06 : Math.sin(now * 0.0025) * 0.007);
+    this.demon.rotation.x = THREE.MathUtils.lerp(this.demon.rotation.x, hot ? -0.65 : this.activity === 'pushing' && moving ? 0.22 : 0, factor);
+    this.demon.rotation.z = THREE.MathUtils.lerp(this.demon.rotation.z, hot ? 0.35 : thinking ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
+    this.arms.forEach((arm, i) => { const side = i ? 1 : -1; arm.rotation.z = thinking && i ? -1.7 : this.activity === 'pushing' && moving ? -side * 0.7 : -side * 0.24; arm.rotation.x = moving && !hot ? Math.sin(now * 0.025 + i * Math.PI) * 0.35 : 0; });
+    this.pistonRods.forEach(p => {
+      p.rod.scale.y = THREE.MathUtils.lerp(p.rod.scale.y, p.target, factor);
+      p.rod.position.copy(p.rod.userData.base); const d = [[-1, 0], [0, 1], [1, 0], [0, -1]][p.direction];
+      p.rod.position.x += d[0] * (0.35 + p.rod.scale.y * 0.4); p.rod.position.z += d[1] * (0.35 + p.rod.scale.y * 0.4);
+    });
     this.rings.forEach(r => { const m = r.material as THREE.MeshStandardMaterial; m.emissiveIntensity = 0.95 + Math.sin(now * 0.002) * 0.22; });
     this.controls.update();
     this.composer.render();
   }
   private disposeBoard(): void {
+    this.disposeGroup(this.board);
+  }
+  private disposeGroup(group: THREE.Group): void {
     const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>();
-    this.board.traverse(o => {
+    group.traverse(o => {
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) { geometries.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => materials.add(m)); }
     });
     geometries.forEach(g => g.dispose()); materials.forEach(m => {
-      if (m === this.demonMaterial) return;
-      const map = (m as THREE.MeshStandardMaterial).map; if (map && map !== this.texture) map.dispose(); m.dispose();
+      if (m === this.demonMaterial || m === this.coreMaterial) return;
+      const map = (m as THREE.MeshStandardMaterial).map; map?.dispose(); m.dispose();
     });
   }
 }

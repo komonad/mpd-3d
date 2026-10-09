@@ -1,15 +1,17 @@
 import type { Cell, Direction, Level, State, Temperature } from './types';
+import { applyPush, passiveCompression, pushPlan, settleTurn } from './pistons';
 
 // Edge pairs are ordered west, south, east, north in the MXW stream.
 export const directions = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }];
 export const edge = (cell: Cell, direction: number) => (cell.edges >> (direction * 2)) & 3;
 export const opposite = (direction: number) => (direction + 2) % 4;
 export const positionKey = (x: number, y: number) => `${x},${y}`;
-export const cloneState = (state: State): State => structuredClone(state);
+export const cloneState = (state: State): State => { const { turnFrames: _, ...rest } = state; return structuredClone(rest); };
 
 export function initialState(level: Level, solved: Set<string> = new Set(), outside: Temperature = 0): State {
   const cells = level.cells.map((c, key) => ({ ...structuredClone(c), ...(c.portal && solved.has(c.portal.target) ? c.portal.after : {}), key }));
-  return { levelId: level.id, cells, players: level.players.map(p => ({ ...p, temperature: 0 })), outside, moves: 0, pushes: 0, solved: false, frozen: false };
+  const players = level.players.map(p => ({ ...p, temperature: p.temperature ?? 0 }));
+  return { levelId: level.id, cells, players, outside, moves: 0, pushes: 0, solved: false, frozen: players.every(p => p.temperature === 1), pistons: structuredClone(level.pistons ?? []), phase: 'ready' };
 }
 
 export function bodies(cells: Cell[]): Cell[][] {
@@ -66,48 +68,26 @@ export function isSolved(level: Level, state: State): boolean {
 }
 
 export function move(level: Level, state: State, direction: Direction): State | null {
-  if (state.solved || state.frozen) return null;
+  if (state.solved || state.frozen || state.phase === 'cycling') return null;
   const next = cloneState(state), d = directions[direction];
-  const groups = bodies(next.cells), byKey = new Map<number, number>();
-  groups.forEach((group, index) => group.forEach(c => byKey.set(c.key, index)));
-  const lookup = new Map(next.cells.map(c => [positionKey(c.x, c.y), c]));
-  const moved = new Set<number>();
-  let didMove = false;
-  for (const player of next.players) {
+  let didMove = false, pushed = false;
+  for (let index = 0; index < next.players.length; index++) {
+    const player = next.players[index];
     if (player.temperature === 1) continue;
     const x = player.x + d.x, y = player.y + d.y;
     if (x < 0 || y < 0 || x >= level.width || y >= level.height) continue;
-    const target = lookup.get(positionKey(x, y));
-    const planned = new Set<number>();
-    function plan(groupId: number): boolean {
-      if (planned.has(groupId)) return true;
-      const group = groups[groupId];
-      if (group.some(c => c.fixed)) return false;
-      planned.add(groupId);
-      for (const c of group) {
-        const tx = c.x + d.x, ty = c.y + d.y;
-        if (tx < 0 || ty < 0 || tx >= level.width || ty >= level.height) return false;
-        const obstacle = lookup.get(positionKey(tx, ty));
-        if (obstacle && byKey.get(obstacle.key) !== groupId && !plan(byKey.get(obstacle.key)!)) return false;
-      }
-      return true;
-    }
-    if (target && !plan(byKey.get(target.key)!)) continue;
-    for (const index of planned) {
-      if (moved.has(index)) continue;
-      groups[index].forEach(c => { lookup.delete(positionKey(c.x, c.y)); });
-    }
-    for (const index of planned) {
-      if (moved.has(index)) continue;
-      groups[index].forEach(c => { c.x += d.x; c.y += d.y; lookup.set(positionKey(c.x, c.y), c); });
-      moved.add(index);
+    const target = next.cells.find(c => c.x === x && c.y === y);
+    if (target && passiveCompression(level, next, target, direction)) pushed = true;
+    else {
+      const plan = pushPlan(level, next, x, y, direction, false, index); if (!plan) continue;
+      applyPush(next, plan, direction); if (plan.cells.size) pushed = true;
     }
     player.x = x; player.y = y; didMove = true;
   }
   if (!didMove) return null;
-  next.moves++; if (moved.size) next.pushes++;
-  transferHeat(level, next);
-  next.solved = isSolved(level, next);
+  next.moves++; if (pushed) next.pushes++;
+  settleTurn(level, next);
+  next.solved = next.phase === 'ready' && isSolved(level, next);
   return next;
 }
 
