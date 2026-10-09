@@ -1,6 +1,6 @@
 export type Temperature = -1 | 0 | 1 | 2;
 export interface Point { x: number; y: number }
-export interface BlockProperties { fixed: boolean; storesHeat: boolean; temperature: Temperature; edges: number }
+export interface BlockProperties { fixed: boolean; storesHeat: boolean; heatCapacity?: number; temperature: Temperature; edges: number }
 export interface Cell extends Point, BlockProperties {
   key: number;
   container?: number;
@@ -28,6 +28,6 @@ export interface State {
   pistons?: Piston[]; phase?: 'ready' | 'cycling'; turnFrames?: TurnFrame[];
   transient?: boolean;
 }
-export interface World { id: string; index: number; title: string; description: string; supported: boolean }
-export interface Dataset { version: number; world: string; worlds?: World[]; levels: Level[]; hints: Record<string, string> }
+export interface World { id: string; index: number | string; title: string; description: string; supported: boolean }
+export interface Dataset { version: number; world: string; hub?: string; root?: string; worlds?: World[]; levels: Level[]; hints: Record<string, string> }
 export type Direction = 0 | 1 | 2 | 3;

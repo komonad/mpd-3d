@@ -11,6 +11,12 @@ test('a hot and cold connected pair becomes neutral simultaneously', () => {
   const l = fixture([block(3, 2, 1), block(4, 2, -1)]), s = initialState(l);
   transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]);
 });
+test('finite heat balance uses each block capacity', () => {
+  const l = fixture([{ ...block(3, 2, 1), heatCapacity: 8 }, { ...block(4, 2, -1), heatCapacity: 7 }]), s = initialState(l);
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [1, 1]);
+  s.cells[0].temperature = 1; s.cells[1].temperature = -1; s.cells[1].heatCapacity = 8;
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]);
+});
 test('the demon conducts without storing heat', () => {
   const l = fixture([block(2, 2, 1), block(4, 2, -1)], [{ x: 3, y: 2 }]), s = initialState(l);
   s.players[0].temperature = 1; transferHeat(l, s);

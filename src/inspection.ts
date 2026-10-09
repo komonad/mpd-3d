@@ -31,6 +31,7 @@ export function inspectCell(state: State, key: number, labels: Map<string, strin
   };
   const details = (c: Cell): string => [temperatureName(c.temperature), fixedKeys.has(c.key) ? '固定' : '可推动',
     ...(!c.storesHeat ? ['透明 · 不储热'] : []),
+    ...((c.heatCapacity ?? 1) > 1 ? [`热容量 ${c.heatCapacity}`] : []),
     ...([0, 1, 2, 3].some(d => ((c.edges >> (d * 2)) & 3) === 3) ? ['粘边'] : []),
     ...(pistons.has(c.key) ? [pistonStateName(pistons.get(c.key)!)] : [])].join(' · ');
   const contents: InspectedItem[] = [];

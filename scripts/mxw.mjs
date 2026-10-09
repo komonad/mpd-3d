@@ -8,9 +8,9 @@ export function decodeMxw(buffer, id) {
   const string = () => { const start = cursor; while (read() !== 0) {} return buffer.subarray(start, cursor - 1).toString('utf8'); };
   const block = () => {
     const tag = read();
-    if (tag !== 2) throw new Error(`${id}: block tag ${tag} at ${cursor - 1}`);
-    const flags = read(), edges = read();
-    return { fixed: !!(flags & 1), storesHeat: !!(flags & 2), temperature: [0, 1, -1, 2][(flags >> 2) & 3], edges };
+    if (tag !== 2 && tag !== 5) throw new Error(`${id}: block tag ${tag} at ${cursor - 1}`);
+    const flags = read(), edges = read(), storesHeat = !!(flags & 2), heatCapacity = tag === 5 ? read() | read() << 8 : storesHeat ? 1 : 0;
+    return { fixed: !!(flags & 1), storesHeat, heatCapacity, temperature: [0, 1, -1, 2][(flags >> 2) & 3], edges };
   };
   const width = read(), height = read(), cells = [], players = [], pistons = [];
   const object = (x, y, container) => {
@@ -18,7 +18,7 @@ export function decodeMxw(buffer, id) {
     const location = { x, y, ...(container === undefined ? {} : { container }) };
     if (tag === 0) return;
     if (tag === 1) { players.push(location); return; }
-    if (tag === 2) { cursor--; cells.push({ ...location, ...block() }); return; }
+    if (tag === 2 || tag === 5) { cursor--; cells.push({ ...location, ...block() }); return; }
     if (tag === 3) {
       const shortcut = !read(), target = string(), before = block(), after = block();
       cells.push({ ...location, ...before, portal: { target, shortcut, before, after } });

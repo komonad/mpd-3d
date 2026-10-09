@@ -9,5 +9,5 @@ export function levelLabels(levels: Level[]): Map<string, { full: string; local:
 
 export function portalLabel(cell: Cell, labels: ReturnType<typeof levelLabels>): string {
   const name = cell.portal && labels.get(cell.portal.target);
-  return name ? cell.portal!.shortcut ? name.local : name.full : '↗';
+  return name ? cell.portal!.shortcut ? name.full : name.local : '↗';
 }

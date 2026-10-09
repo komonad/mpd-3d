@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { edge, initialState, move, transferHeat } from '../src/engine';
-import { createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds } from '../src/session';
+import { completeHierarchy, createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds } from '../src/session';
 import { fixedAnchorPoints } from '../src/body-geometry';
 import { laboratory } from '../src/laboratory';
 import type { BlockProperties, Cell, Dataset, Level, Temperature } from '../src/types';
@@ -44,6 +44,24 @@ test('returning from a hint initializes its source scene and nested exits remain
   assert.equal(s.current.levelId, a.id); assert.equal(s.current.cells[0].x, 4);
   assert.deepEqual(s.current.players.map(p => [p.x, p.y]), [[1, 2]]);
   assert.equal(original.current.cells[0].x, 5);
+});
+
+test('entering a hint leaves thinking demons in the source and creates awake hint demons', () => {
+  const source = level('source', [], [{ x: 1, y: 2 }, { x: 4, y: 2 }]), hint = { ...level('hint'), category: 'hint' as const }, data = catalogue(source, hint);
+  const original = createSession(source), entered = enterHint(data, original, hint.id)!;
+  assert.ok(entered.states.source.players.every(p => p.awake === false));
+  assert.deepEqual(entered.states.source.players.map(p => [p.x, p.y]), [[1, 2], [4, 2]]);
+  assert.ok(entered.current.players.every(p => p.awake !== false));
+  assert.ok(original.current.players.every(p => p.awake !== false));
+});
+
+test('a retained hint demon resets once at its current coordinate', () => {
+  const source = level('source'), hint = { ...level('hint'), category: 'hint' as const }, entered = enterHint(catalogue(source, hint), createSession(source), hint.id)!;
+  assert.ok(entered.current.players[0].key);
+  entered.current.players[0].temperature = 2; entered.current.players[0].x = 4;
+  const reset = resetSession(entered);
+  assert.equal(reset.current.players.length, 1); assert.equal(reset.current.players[0].x, 4);
+  assert.equal(reset.current.players[0].temperature, 2);
 });
 
 test('shortcuts require discovery and reconstruct intermediate exits', () => {
@@ -202,9 +220,31 @@ test('available worlds open independently of completion while unsupported worlds
 
 test('the local catalogue resolves every canonical parent within supported worlds', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, ids = new Set(data.levels.map(l => l.id));
-  assert.equal(data.worlds!.filter(w => w.supported).length, 9);
-  assert.equal(data.levels.length, 764);
+  assert.equal(data.worlds!.filter(w => w.supported).length, 12);
+  assert.equal(data.levels.length, 1153);
   assert.ok(data.levels.every(l => !l.parentId || ids.has(l.parentId)));
+  assert.equal(ids.size, data.levels.length);
+  assert.ok(data.levels.flatMap(l => l.cells).every(c => !c.portal || ids.has(c.portal.target)));
+});
+
+test('the overworld connects world one through its canonical entrance and preserves the return side', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, hub = data.levels.find(l => l.id === data.hub)!;
+  let session = createSession(hub);
+  for (let i = 0; i < 4; i++) { const state = move(hub, session.current, 2)!; session.current = state; recordState(session, state, hub); }
+  const entered = enterPortal(data, session, data.world)!;
+  assert.equal(entered.current.levelId, data.world);
+  const exited = exitLevel(data, entered)!;
+  assert.equal(exited.current.levelId, data.hub); assert.deepEqual(exited.current.players.map(p => [p.x, p.y]), [[10, 3]]);
+});
+
+test('saved rooms gain missing outer parents while keeping their current layout', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, l = data.levels.find(l => l.label === '1-01')!;
+  const saved = createSession(l); saved.current.players[0].x++;
+  const restored = completeHierarchy(data, saved);
+  assert.deepEqual(restored.current, saved.current);
+  assert.equal(restored.entries[data.world].parentId, data.hub);
+  assert.equal(restored.entries[data.hub!].parentId, data.root);
+  assert.ok(restored.states[data.hub!]); assert.ok(restored.baselines[data.root!]);
 });
 
 test('original 2-01 reaches its goal after balancing the rigid pair with the hot cells', { skip: !fs.existsSync('public/levels.local.json') }, () => {

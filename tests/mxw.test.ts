@@ -20,3 +20,9 @@ test('MXW rejects incomplete inventories and unknown nested object types', () =>
   assert.throws(() => decodeMxw(Buffer.from([1, 1, 4, 0, 2, 2, 0x95, 0]), 'incomplete'), /truncated/);
   assert.throws(() => decodeMxw(Buffer.from([1, 1, 4, 0, 2, 2, 0x95, 0, 8]), 'unknown'), /unsupported tile 8/);
 });
+
+test('MXW capacity blocks decode a little-endian heat capacity inside pistons', () => {
+  const l = decodeMxw(Buffer.from([1, 1, 4, 0, 2, 2, 0x55, 1, 5, 6, 0x55, 0x08, 0x01, 0, 0]), 'capacity');
+  assert.equal(l.cells[1].heatCapacity, 264);
+  assert.equal(l.cells[1].temperature, 1); assert.equal(l.cells[1].container, 0);
+});

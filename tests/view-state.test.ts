@@ -17,15 +17,16 @@ test('large world maps retain a bounded local view while small rooms fit normall
   assert.ok(cameraHalfHeight(11, 9, 0.6, tilt, yaw) > cameraHalfHeight(11, 9, 1.4, tilt, yaw));
 });
 test('completion waits for both motion time and every moving object to settle', () => {
-  assert.equal(motionSettled(179, [0, 0]), false);
+  assert.equal(motionSettled(109, [0, 0]), false);
+  assert.equal(motionSettled(110, [0, 0]), true);
   assert.equal(motionSettled(300, [0, 0.002]), false);
   assert.equal(motionSettled(300, [0.0005, 0.0007]), true);
 });
-test('thinking follows hint context while inactivity and heat cycles keep distinct statuses', () => {
+test('thinking follows sleeping demons while inactivity and heat cycles keep distinct statuses', () => {
   assert.equal(demonStatus(1, 1, 'idle', false, false, false), '待机');
   assert.equal(demonStatus(1, 1, 'idle', false, true, false), '思考');
   assert.equal(demonStatus(1, 1, 'idle', false, false, true), '热量循环');
-  assert.equal(demonStatus(0, 1, 'idle', false, true, false), '假死');
+  assert.equal(demonStatus(0, 1, 'idle', false, true, false), '思考');
   assert.equal(demonStatus(1, 2, 'idle', false, true, false), '思考 · 1/2 可行动');
 });
 test('the exterior and boundary share one continuous top and rounded interior contour', () => {

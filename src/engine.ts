@@ -59,7 +59,7 @@ export function syncExteriorTemperature(level: Pick<Level, 'width' | 'height'>, 
 
 export function transferHeat(level: Level, state: State): void {
   const infinite = syncExteriorTemperature(level, state);
-  const nodes = [...state.cells, ...state.players.map((p, i) => ({ ...p, key: -(i + 1), fixed: false, edges: 0x55, storesHeat: false }))];
+  const nodes = [...state.cells, ...state.players.map((p, i) => ({ ...p, key: -(i + 1), fixed: false, edges: 0x55, storesHeat: false, heatCapacity: 0 }))];
   const byKey = new Map(nodes.map(c => [c.key, c]));
   const links = new Map<number, Set<number>>();
   for (const contact of contacts(nodes, state.pistons)) {
@@ -85,7 +85,7 @@ export function transferHeat(level: Level, state: State): void {
       for (const key of links.get(c.key) ?? []) if (!seen.has(key)) { seen.add(key); component.push(byKey.get(key)!); }
     }
     // Demons and transparent cells conduct heat without contributing to its balance.
-    const sum = component.reduce((s, c) => s + (c.storesHeat && !infinite.has(c.key) && c.temperature !== 2 ? c.temperature : 0), 0);
+    const sum = component.reduce((s, c) => s + (c.storesHeat && !infinite.has(c.key) && c.temperature !== 2 ? c.temperature * (c.heatCapacity ?? 1) : 0), 0);
     const retentive = component.some(c => c.storesHeat && !infinite.has(c.key) && c.temperature === 2);
     const balance: Temperature = sum ? Math.sign(sum) as Temperature : retentive ? 2 : 0;
     const temperature: Temperature = outside ? state.outside : balance;
@@ -140,11 +140,22 @@ export function move(level: Level, state: State, direction: Direction): State | 
 }
 
 export function availablePortals(state: State): Cell[] {
-  return state.cells.filter(c => c.portal && portalPlayers(state, c).length > 0);
+  const touching = portalDemonContacts(state);
+  return state.cells.filter(c => c.portal && touching.has(c.key));
 }
 
 export function portalPlayers(state: State, portal: Cell) {
+  return portalDemonContacts(state).get(portal.key) ?? [];
+}
+
+function portalDemonContacts(state: State): Map<number, State['players']> {
   const nodes = [...state.cells, ...state.players.map((p, i) => ({ ...p, key: -(i + 1), fixed: false, edges: 0x55, storesHeat: false }))];
-  const keys = new Set(contacts(nodes, state.pistons).filter(c => !c.internal && (c.a === portal.key || c.b === portal.key)).map(c => c.a === portal.key ? c.b : c.a));
-  return state.players.filter((p, i) => canMoveDemon(p) && keys.has(-(i + 1)));
+  const touching = new Map<number, State['players']>();
+  for (const contact of contacts(nodes, state.pistons)) {
+    if (contact.internal || contact.a >= 0 && contact.b >= 0 || contact.a < 0 && contact.b < 0) continue;
+    const key = Math.max(contact.a, contact.b), player = state.players[-Math.min(contact.a, contact.b) - 1];
+    if (!canMoveDemon(player)) continue;
+    const players = touching.get(key) ?? []; if (!players.includes(player)) players.push(player); touching.set(key, players);
+  }
+  return touching;
 }

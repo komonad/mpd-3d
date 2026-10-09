@@ -48,7 +48,6 @@ export class GameScene {
   private demons: DemonVisual[] = [];
   private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   private parts = new THREE.Group();
-  private bodySignature = '';
   private labels: ReturnType<typeof levelLabels> = new Map();
   private shownState?: State;
   private activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle';
@@ -68,15 +67,12 @@ export class GameScene {
   private azimuth = -9;
   private running = true;
   private freeView = false;
-  private thinking = false;
   private motionWaiters: ((settled: boolean) => void)[] = [];
   onHover?: (cellKey: number | null, state?: State) => void;
   onPortalClick?: (target: string) => void;
   onNoteClick?: (text: string) => void;
   onStatus?: (temperature: Temperature, status: string) => void;
   private status = '';
-
-  setThinking(thinking: boolean): void { this.thinking = thinking; }
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -198,7 +194,7 @@ export class GameScene {
       geometry.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
       geometry.groups.forEach(group => { group.materialIndex = uniform ? 0 : cells.indexOf(solidCells[group.materialIndex ?? 0]); });
       const core = new THREE.Mesh(geometry, materials); core.castShadow = kind === 'solid'; core.receiveShadow = true;
-      core.userData.transmissiveOnly = kind === 'glass'; g.add(core);
+      core.userData.bodySurface = true; core.userData.transmissiveOnly = kind === 'glass'; g.add(core);
     }
     g.userData.key = root.key; g.userData.cellKeys = cells.map(c => c.key); g.userData.materials = materials; g.userData.uniform = uniform;
     const glass = solidCells.filter(c => !c.storesHeat);
@@ -221,9 +217,10 @@ export class GameScene {
     } else layer.dispose();
     for (const cell of cells) {
       const x = cell.x - root.x, z = cell.y - root.y;
-      if (cell.portal) {
-        const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(portalLabel(cell, this.labels), cell.portal.shortcut ? 600 : 700), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
-        mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.portal = cell.portal.target;
+      if (cell.portal || (cell.heatCapacity ?? 1) > 1) {
+        const text = cell.portal ? portalLabel(cell, this.labels) : String(cell.heatCapacity);
+        const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(text, cell.portal?.shortcut ? 600 : 700), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
+        mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.portal = cell.portal?.target;
       }
       const piston = state.pistons?.find(p => p.baseKey === cell.key);
       if (piston) {
@@ -282,6 +279,20 @@ export class GameScene {
         this.mesh(new THREE.BoxGeometry(0.065, 0.003, 0.009), slot, g, p.x - root.x, height + 0.085, p.y - root.y);
       }
     }
+    if (cells.some(c => !c.storesHeat)) {
+      // Glass attachments render after transmission so the refraction buffer cannot contain their own image.
+      const deferred = new Map<THREE.Material, THREE.Material>();
+      g.traverse(object => {
+        if (!(object instanceof THREE.Mesh) || object.userData.bodySurface) return;
+        const defer = (material: THREE.Material) => {
+          if (material.transparent || (material as THREE.MeshPhysicalMaterial).transmission > 0) return material;
+          if (!deferred.has(material)) { const copy = material.clone(); copy.transparent = true; deferred.set(material, copy); }
+          return deferred.get(material)!;
+        };
+        object.material = Array.isArray(object.material) ? object.material.map(defer) : defer(object.material);
+        object.userData.transmissiveOnly = true;
+      });
+    }
     return g;
   }
 
@@ -302,16 +313,29 @@ export class GameScene {
 
   private syncBodies(state: State, snap: boolean): void {
     const groups = bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key));
-    const signature = JSON.stringify([groups.map(g => [g.map(c => [c.key, c.edges, c.storesHeat, c.container]), g.every(c => c.temperature === g[0].temperature && c.storesHeat === g[0].storesHeat)]), state.pistons?.map(p => [p.baseKey, p.expanded])]);
-    if (signature !== this.bodySignature) {
-      const positions = new Map([...this.pieces].map(([key, g]) => [key, g.position.clone()]));
-      this.board.remove(this.parts); this.disposeGroup(this.parts); this.parts = new THREE.Group(); this.board.add(this.parts);
-      this.pieces.clear(); this.targets.clear(); this.pistonRods = []; this.bodySignature = signature;
-      for (const cells of groups) {
-        const group = this.makeBody(cells, state), root = cells[0];
+    const live = new Set(groups.map(cells => cells[0].key));
+    const remove = (key: number, group: THREE.Group) => {
+      this.pistonRods = this.pistonRods.filter(p => p.rod.parent !== group);
+      this.parts.remove(group); this.disposeGroup(group); this.pieces.delete(key); this.targets.delete(key);
+    };
+    for (const [key, group] of this.pieces) if (!live.has(key)) remove(key, group);
+    for (const cells of groups) {
+      const root = cells[0];
+      const signature = JSON.stringify(cells.map(c => {
+        const p = state.pistons?.find(p => p.baseKey === c.key || p.headKey === c.key);
+        return [c.key, c.x - root.x, c.y - root.y, c.edges, c.fixed, c.storesHeat, c.heatCapacity, c.container, c.portal,
+          p && [p.baseKey, p.expanded, state.cells.some(child => child.container === p.baseKey) || state.players.some(child => child.container === p.baseKey)]];
+      }));
+      const uniform = cells.every(c => c.temperature === root.temperature && c.storesHeat === root.storesHeat);
+      const existing = this.pieces.get(root.key);
+      if (!existing || existing.userData.signature !== signature || existing.userData.uniform && !uniform) {
+        const position = existing?.position.clone();
+        if (existing) remove(root.key, existing);
+        const group = this.makeBody(cells, state);
+        group.userData.signature = signature;
         group.scale.setScalar(Math.pow(0.72, depth(root, state.cells)));
         const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
-        group.position.copy(!snap && positions.has(root.key) ? positions.get(root.key)! : target);
+        group.position.copy(!snap && position ? position : target);
         this.parts.add(group); this.pieces.set(root.key, group);
       }
     }
@@ -319,16 +343,26 @@ export class GameScene {
       const root = cells[0], group = this.pieces.get(root.key)!;
       const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
       this.targets.set(root.key, target); if (snap) group.position.copy(target);
-      const materials = group.userData.materials as THREE.MeshPhysicalMaterial[];
-      materials.forEach((m, i) => this.paint(m, group.userData.uniform ? root : cells[i], cells.some(c => c.fixed)));
+      const thermalSignature = cells.map(c => c.temperature).join(',');
+      if (group.userData.thermalSignature === thermalSignature) continue;
+      group.userData.thermalSignature = thermalSignature;
+      const materials = group.userData.materials as THREE.MeshPhysicalMaterial[], fixed = cells.some(c => c.fixed);
+      materials.forEach((m, i) => this.paint(m, group.userData.uniform ? root : cells[i], fixed));
       const layer = group.userData.surfaceLayer as THREE.BufferGeometry | undefined;
       if (layer) {
         const positions = layer.getAttribute('position'), colors = layer.getAttribute('color'), color = new THREE.Color();
+        let owners = group.userData.layerOwners as number[] | undefined;
+        if (!owners) {
+          owners = [];
+          for (let i = 0; i < positions.count; i += 3) {
+            const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3 + root.x;
+            const y = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3 + root.y;
+            owners.push(cells.reduce((best, c, index) => Math.hypot(c.x - x, c.y - y) < Math.hypot(cells[best].x - x, cells[best].y - y) ? index : best, 0));
+          }
+          group.userData.layerOwners = owners;
+        }
         for (let i = 0; i < positions.count; i += 3) {
-          const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3 + root.x;
-          const y = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3 + root.y;
-          const owner = cells.reduce((a, b) => Math.hypot(b.x - x, b.y - y) < Math.hypot(a.x - x, a.y - y) ? b : a);
-          color.set(thermalColor(owner.temperature));
+          color.set(thermalColor(cells[owners[i / 3]].temperature));
           for (let j = 0; j < 3; j++) colors.setXYZ(i + j, color.r, color.g, color.b);
         }
         colors.needsUpdate = true;
@@ -347,8 +381,8 @@ export class GameScene {
     this.hoverEvent = undefined; this.onHover?.(null);
     this.scene.remove(this.board); this.disposeBoard();
     this.board = new THREE.Group(); this.scene.add(this.board); this.level = level;
-    this.pieces.clear(); this.targets.clear(); this.gridMeshes = []; this.noteMarkers = [];
-    this.parts = new THREE.Group(); this.board.add(this.parts); this.bodySignature = ''; this.labels = labels; this.shownState = state;
+    this.pieces.clear(); this.targets.clear(); this.pistonRods = []; this.gridMeshes = []; this.noteMarkers = [];
+    this.parts = new THREE.Group(); this.board.add(this.parts); this.labels = labels; this.shownState = state;
     const w = level.width, h = level.height;
     const lightDirection = new THREE.Vector3(-9, 16, 7).normalize();
     this.sun.position.copy(lightDirection.multiplyScalar(Math.hypot(w, h) + 20));
@@ -400,6 +434,10 @@ export class GameScene {
     if (!this.level) return;
     this.cancelMotionWaits();
     const { width: w, height: h } = this.level;
+    const previous = this.shownState, positions = new Map(previous?.cells.map(c => [c.key, c]) ?? []);
+    const moved = !previous || state.cells.some(c => { const p = positions.get(c.key); return !p || c.x !== p.x || c.y !== p.y || c.container !== p.container; }) ||
+      state.players.some((p, i) => p.x !== previous.players[i]?.x || p.y !== previous.players[i]?.y || p.container !== previous.players[i]?.container) ||
+      state.pistons?.some(p => p.expanded !== previous.pistons?.find(old => old.baseKey === p.baseKey)?.expanded);
     this.shownState = state; this.activity = activity; this.syncBodies(state, snap);
     while (this.demons.length > state.players.length) {
       const model = this.demons.pop()!; this.board.remove(model.group); this.disposeGroup(model.group);
@@ -419,7 +457,7 @@ export class GameScene {
       const group = p.rod.parent!, piston = state.pistons?.find(a => group.userData.cellKeys.includes(a.baseKey));
       p.target = piston?.expanded ? 1 : 0.02; if (snap) p.rod.scale.y = p.target;
     });
-    this.lastStep = performance.now();
+    if (snap || moved) this.lastStep = performance.now();
     if (this.hoverEvent) this.hover(this.hoverEvent);
   }
 
@@ -497,18 +535,20 @@ export class GameScene {
   private animate(): void {
     const now = performance.now(), dt = Math.min((now - this.previousTime) / 1000, 0.1); this.previousTime = now;
     if (!this.running) return;
-    const factor = 1 - Math.exp(-22 * dt);
+    const finished = now - this.lastStep >= 110;
+    const factor = finished ? 1 : 1 - Math.exp(-36 * dt);
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
-    const moving = this.activity !== 'idle' && now - this.lastStep < 170;
+    const moving = this.activity !== 'idle' && now - this.lastStep < 110;
     const active = this.demons.filter(d => d.temperature !== 1 && d.awake), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
-    const text = demonStatus(active.length, this.demons.length, this.activity, moving, this.thinking, this.shownState?.phase === 'cycling');
+    const thinking = this.demons.some(d => !d.awake && d.temperature !== 1);
+    const text = demonStatus(active.length, this.demons.length, this.activity, moving, thinking, this.shownState?.phase === 'cycling');
     const statusKey = `${temperature}:${text}`;
     if (statusKey !== this.status) { this.status = statusKey; this.onStatus?.(temperature, text); }
     for (const model of this.demons) {
-      const hot = model.temperature === 1, inThought = !hot && (this.thinking || !model.awake);
+      const hot = model.temperature === 1, inThought = !hot && !model.awake;
       model.group.position.lerp(model.target, factor);
       model.eyes.visible = !hot && !inThought; model.faintEyes.visible = hot; model.thinkingEyes.visible = inThought;
-      model.group.position.y = 0.055 + (!hot && moving ? Math.sin((now - this.lastStep) / 170 * Math.PI) * 0.06 : 0);
+      model.group.position.y = 0.055 + (!hot && moving ? Math.sin((now - this.lastStep) / 110 * Math.PI) * 0.06 : 0);
       model.group.rotation.x = THREE.MathUtils.lerp(model.group.rotation.x, this.activity === 'pushing' && moving && !hot ? 0.22 : 0, factor);
       model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, inThought ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
     }
@@ -545,7 +585,7 @@ export class GameScene {
     });
     geometries.forEach(g => g.dispose()); materials.forEach(m => {
       if (m === this.adhesiveMaterial) return;
-      const map = (m as THREE.MeshStandardMaterial).map; map?.dispose(); m.dispose();
+      const map = (m as THREE.MeshStandardMaterial).map; if (map !== this.adhesiveMaterial.map) map?.dispose(); m.dispose();
     });
   }
 }

@@ -93,9 +93,9 @@ export function captureFrame(state: State, phase: TurnFrame['phase']): TurnFrame
 }
 export function settleTurn(level: Level, state: State): void {
   state.transient = false;
-  if (!state.pistons?.length) { transferHeat(level, state); state.phase = 'ready'; return; }
   const frames = [captureFrame(state, 'motion')];
   transferHeat(level, state); frames.push(captureFrame(state, 'heat'));
+  if (!state.pistons?.length) { state.phase = 'ready'; state.turnFrames = frames; return; }
   state.phase = 'ready'; const seen = new Set([signature(state)]);
   for (let step = 0; step < 128; step++) {
     const next = [...(state.pistons ?? [])].sort((a, b) => a.order - b.order).find(p => actuate(level, state, p));

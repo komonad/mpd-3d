@@ -14,10 +14,10 @@ export function cameraHalfHeight(width: number, height: number, aspect: number, 
 }
 
 export function motionSettled(elapsed: number, distances: readonly number[]): boolean {
-  return elapsed >= 180 && distances.every(distance => distance <= 0.001);
+  return elapsed >= 110 && distances.every(distance => distance <= 0.001);
 }
 
 export function demonStatus(active: number, total: number, activity: string, moving: boolean, thinking: boolean, cycling: boolean): string {
-  const status = activity === 'resolving' ? '热量结算中' : !active ? '假死' : cycling ? '热量循环' : thinking ? '思考' : moving && activity === 'pushing' ? '推动' : moving ? '移动' : '待机';
+  const status = activity === 'resolving' ? '热量结算中' : thinking ? '思考' : !active ? '假死' : cycling ? '热量循环' : moving && activity === 'pushing' ? '推动' : moving ? '移动' : '待机';
   return total > 1 ? `${status} · ${active}/${total} 可行动` : status;
 }

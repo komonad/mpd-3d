@@ -204,9 +204,42 @@ test('reset can reconstruct multiple nested depths without dangling containers',
   assert.equal(depth(s.cells.find(c => c.key === 2)!, s.cells), 2);
 });
 
-test('the imported nine-world catalogue preserves piston inventories and order', { skip: !fs.existsSync('public/levels.local.json') }, () => {
-  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
-  assert.equal(data.levels.filter(l => l.category === 'main').length, 190);
+test('retained piston inventory stays at its current coordinate when its housing resets elsewhere', () => {
+  const l = room([housing(3), block(3, 3, 2, 0)], [piston(0)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells.forEach(c => { c.x = 4; });
+  const s = resetState(current, baseline, []);
+  assert.deepEqual(s.cells.map(c => [c.key, c.x, c.container]), [[0, 3, undefined], [1, 4, undefined]]);
+  assert.equal(s.cells[1].temperature, 2);
+});
+
+test('retained deeper inventory suppresses an initial solid block at its coordinate', () => {
+  const l = room([housing(3), block(3, 3, 2, 0), block(4, 3)], [piston(0)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells[0].x = current.cells[1].x = 4; current.cells[2].x = 6;
+  const s = resetState(current, baseline, []);
+  assert.equal(s.cells.some(c => c.key === 2), false);
+  assert.deepEqual([s.cells[1].x, s.cells[1].container], [4, undefined]);
+});
+
+test('reset collapses absent container depths beneath a restored compressed housing', () => {
+  const l = room([housing(3), block(3, 3, 0, 0), housing(6), { ...housing(6), container: 2 }, block(6, 3, 2, 3)], [piston(0), piston(2), piston(3)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells.filter(c => c.key >= 2).forEach(c => { c.x = 3; });
+  const s = resetState(current, baseline, []), retained = s.cells.find(c => c.key === 4)!;
+  assert.equal(s.cells.some(c => c.key === 1), false);
+  assert.equal(retained.container, 0); assert.equal(depth(retained, s.cells), 1);
+  assert.equal(s.pistons!.find(p => p.baseKey === 0)!.expanded, false);
+});
+
+test('retained pistons preserve their current expansion state through reset', () => {
+  const l = room([housing(3, 2)], [piston(0)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells[0].x = 5; current.pistons![0].expanded = true;
+  const s = resetState(current, baseline, []);
+  assert.equal(s.cells[0].x, 5); assert.equal(s.pistons![0].expanded, true);
+});
+
+test('the imported catalogue preserves piston inventories and order', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[]; worlds: { id: string; index: number | string }[] };
+  const worlds = new Set(data.worlds.filter(w => typeof w.index === 'number' && w.index >= 1 && w.index <= 9).map(w => w.id));
+  assert.equal(data.levels.filter(l => l.category === 'main' && worlds.has(l.worldId!)).length, 190);
   for (const l of data.levels) {
     const s = initialState(l), keys = new Set(s.cells.map(c => c.key));
     assert.equal(new Set(s.cells.map(address)).size, s.cells.length, l.label);

@@ -4,7 +4,8 @@ import { laboratory } from './laboratory';
 import { cloneState, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
 import { levelLabels } from './level-labels';
-import { createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds, type Session } from './session';
+import { turnPlayback } from './turn-playback';
+import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds, type Session } from './session';
 import type { Dataset, Direction, Level, State, Temperature, World } from './types';
 
 const icons: Record<string, string> = {
@@ -38,6 +39,7 @@ app.innerHTML = `
       <div class="chapter-eyebrow" id="chapter-eyebrow"></div>
       <h1 id="world-title"></h1>
       <button class="world-button" id="world-button"><span>${icon('map')}探索世界地图</span>${icon('arrow')}</button>
+      <button class="hub-button" id="hub-button">大世界 ${icon('up')}</button>
       <div class="progress-label"><span>探索进度</span><b id="progress-number">0 / 27</b></div><div class="progress-track"><i id="progress-fill"></i></div>
       <div class="level-tabs" role="tablist" aria-label="关卡分类"><button id="main-tab" role="tab" aria-selected="true">主线 <small>20</small></button><button id="extra-tab" role="tab" aria-selected="false">额外 <small>7</small></button><button id="lab-tab" role="tab" aria-selected="false">实验室 <small>8</small></button></div>
       <div id="level-list" class="level-list" role="tabpanel"></div>
@@ -49,7 +51,7 @@ app.innerHTML = `
       <div class="stage-stats"><div><span>MOVES</span><b id="move-count">000</b><small>步数</small></div><div><span>PUSHES</span><b id="push-count">000</b><small>推动</small></div></div>
       <div class="demon-status" id="demon-status" role="status"><i></i><span>小妖 · 常温</span></div>
       </div>
-      <div id="scene-host" class="scene-host"><div id="hover-info" class="hover-info" role="tooltip" hidden></div></div>
+      <div id="scene-host" class="scene-host"><div id="hover-info" class="hover-info" role="tooltip" hidden></div><div id="step-status" class="step-status" role="status" hidden></div></div>
       <div class="scene-meta">
       <div class="scene-tag"><span class="status-dot"></span> ORTHOGRAPHIC VIEW <span id="tilt-label">32°</span></div>
       <div class="legend"><span><i class="legend-neutral"></i>常温</span><span><i class="legend-hot"></i>高温</span><span><i class="legend-cold"></i>低温</span><span><i class="legend-glass"></i>透明</span><span><i class="legend-sticky"></i>粘边</span><span class="legend-goal"><svg viewBox="0 0 16 16" aria-hidden="true"><polygon points="14,8 11,13.2 5,13.2 2,8 5,2.8 11,2.8" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>终点</span></div>
@@ -59,10 +61,10 @@ app.innerHTML = `
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <div class="state-message" id="state-message" hidden></div>
       <div class="stage-toolbar"><div class="history-controls"><button id="undo-button" title="撤销 Z / U" aria-label="撤销">${icon('undo')}<span>撤销</span><kbd>Z</kbd></button><button id="redo-button" title="重做 Y" aria-label="重做">${icon('redo')}<span>重做</span><kbd>Y</kbd></button><i></i><button id="reset-button" title="重置 R" aria-label="重置关卡">${icon('reset')}<span>重置</span><kbd>R</kbd></button></div><div class="camera-controls"><button id="free-view-button" class="camera-button" title="切换自由视角 F" aria-label="自由视角" aria-pressed="false">${icon('map')}<span>自由视角</span><kbd>F</kbd></button><button id="camera-button" class="camera-button" title="重置镜头">${icon('camera')}<span>重置镜头</span></button></div></div>
-      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 右键旋转 · 滚轮缩放 · F 自由视角</span><button id="piston-number-button" aria-pressed="false" hidden>编号 <kbd>Tab</kbd></button><button id="hint-button">提示 ${icon('arrow')}</button></footer>
+      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 右键旋转 · 滚轮缩放 · F 自由视角</span><button id="piston-number-button" aria-pressed="false" hidden>编号 <kbd>Tab</kbd></button><button id="fullscreen-button" title="全屏游玩 · V" aria-label="全屏游玩" aria-pressed="false">${icon('camera')}<span>全屏</span></button><button id="hint-button">提示 ${icon('arrow')}</button></footer>
     </section>
   </main>
-  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>每一次推动，<br>都会改变温度。</h2><p class="dialog-intro">把储存热量的方块推到终点，并让小妖保持常温或低温。</p><div class="rule-row"><span class="rule-icon">↑</span><div><h3>热量会传递</h3><p>相邻且没有隔热边的方块交换热量。高温数量更多，整组变热；低温更多，整组变冷；数量相等，变为常温。</p></div></div><div class="rule-row"><span class="rule-icon demon-icon">••</span><div><h3>小妖也是导体</h3><p>小妖能连接两边的方块，但自身不储存热量。高温时进入假死姿态；一轮活塞结算结束后仍高温，才会停止移动。按 Z 可撤销整轮。</p></div></div><div class="rule-row"><span class="rule-icon">═</span><div><h3>观察每一条边</h3><p>白色侧面隔热，深浅棋盘格侧面会粘住方块；金属钉表示固定。连接块没有内部缝隙，作为一个刚体移动。</p></div></div><div class="dialog-keyboard"><span><kbd>E</kbd>进入关卡</span><span><kbd>Q</kbd>返回世界</span><span><kbd>H</kbd>提示关卡</span></div><p class="scope-note">可直接选择世界 1–9。入口与出口不立即结算热量，快捷入口在抵达目标关卡后解锁。按 Z 可撤销移动、重置和关卡切换。</p><button class="primary-button" data-close>开始探索 ${icon('right')}</button></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>每一次推动，<br>都会改变温度。</h2><p class="dialog-intro">把储存热量的方块推到终点，并让小妖保持常温或低温。</p><div class="rule-row"><span class="rule-icon">↑</span><div><h3>热量会传递</h3><p>相邻且没有隔热边的方块交换热量。高温热容量更多，整组变热；低温更多，整组变冷；冷热平衡时，有绿块则变绿，否则变为常温。</p></div></div><div class="rule-row"><span class="rule-icon demon-icon">••</span><div><h3>小妖也是导体</h3><p>小妖能连接两边的方块，但自身不储存热量。高温时进入假死姿态；一轮活塞结算结束后仍高温，才会停止移动。按 Z 可撤销整轮。</p></div></div><div class="rule-row"><span class="rule-icon">═</span><div><h3>观察每一条边</h3><p>白色侧面隔热，深浅棋盘格侧面会粘住方块；金属钉表示固定。连接块没有内部缝隙，作为一个刚体移动。</p></div></div><div class="dialog-keyboard"><span><kbd>E</kbd>进入关卡</span><span><kbd>Q</kbd>返回世界</span><span><kbd>H</kbd>提示关卡</span></div><p class="scope-note">可选择大世界、世界 1–9、A 和 B。按住 Ctrl 移动可逐步查看热量与活塞变化，V 切换全屏。入口与出口不立即结算热量。快捷入口在抵达后解锁，Z 可撤销移动、重置和关卡切换。</p><button class="primary-button" data-close>开始探索 ${icon('right')}</button></dialog>
   <dialog id="settings-dialog"><div class="dialog-heading"><span class="eyebrow">MAKE IT YOURS</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>光与视角</h2><p class="dialog-intro">找到看得清，也看得舒服的角度。</p><label class="setting-row" for="tilt-input"><span><b>镜头倾斜</b><small>从正俯视方向向下倾斜</small></span><output id="tilt-output">32°</output></label><input id="tilt-input" type="range" min="0" max="50" value="32" step="1"/><label class="setting-row" for="light-input"><span><b>曝光</b><small>材质与灯光的明亮程度</small></span><output id="light-output">1.05</output></label><input id="light-input" type="range" min="0.65" max="1.65" value="1.05" step="0.01"/><label class="setting-row toggle-row"><span><b>精细光影</b><small>高分辨率抗锯齿与环境遮蔽</small></span><input type="checkbox" id="quality-input" checked/></label><label class="setting-row toggle-row"><span><b>辅助网格</b><small>清晰显示格子边界</small></span><input type="checkbox" id="grid-input"/></label><label class="setting-row toggle-row"><span><b>自由视角</b><small>右键旋转、中键平移，关闭后跟随小妖</small></span><input type="checkbox" id="free-view-input"/></label><button class="primary-button" id="settings-reset">恢复默认画面 ${icon('reset')}</button><p class="scope-note">Three.js · PBR 材质 · 正交镜头<br>关卡由本机游戏安装目录导入。</p></dialog>
   <dialog id="hint-dialog"><div class="dialog-heading"><span class="eyebrow">A LITTLE GUIDANCE</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>慢一点，看清热量。</h2><p class="dialog-intro" id="hint-text"></p><div class="hint-art"><span class="hint-cube hot">↑</span><span>＋</span><span class="hint-cube cold">↓</span><span>→</span><span class="hint-cube neutral">·</span></div><p>在提示关卡中实验，按 Q 返回。提示场景的完成状态不计入探索进度。</p><button class="primary-button" id="start-hint-button">进入原版提示关卡 ${icon('right')}</button></dialog>
 `;
@@ -80,6 +82,9 @@ let levelsById: Map<string, Level>, labels: Map<string, string>;
 let toastTimer: ReturnType<typeof setTimeout>, audio: AudioContext | undefined;
 let inputTime = 0;
 let resolving = false, playback = 0;
+let queuedDirection: Direction | undefined, inputTimer: ReturnType<typeof setTimeout> | undefined;
+let ctrlHeld = false, releaseDetail: (() => void) | undefined;
+let sidebarSignature = '';
 
 function levelName(l: Level): string {
   if (l.title) return l.title;
@@ -89,7 +94,8 @@ function levelName(l: Level): string {
   if (l.category === 'hint') return '提示实验';
   return names[Number(l.label.split('-')[1]) - 1] ?? '温度实验';
 }
-function snapshot(): Snapshot { recordState(session, state, level); return structuredClone(session); }
+function snapshotData(): Snapshot { const { turnFrames: _, ...current } = state; return { ...session, current }; }
+function snapshot(): Snapshot { return structuredClone(snapshotData()); }
 function canExit(): boolean { return session.hints.length > 0 || !!session.entries[state.levelId]; }
 function currentWorld(): World { return data.worlds?.find(w => w.id === selectedWorld) ?? { id: data.world, index: 1, title: '温度的世界', description: '冷与热之间，寻找平衡。', supported: true }; }
 function remember(): void { undoHistory.push(snapshot()); if (undoHistory.length > 512) undoHistory.shift(); redoHistory = []; }
@@ -107,14 +113,17 @@ function playTone(kind: 'move' | 'push' | 'solve' | 'undo'): void {
   } catch { /* Audio support is optional for movement. */ }
 }
 function save(): void {
-  try { localStorage.setItem(storageKey, JSON.stringify(snapshot())); $('#save-status').textContent = '进度自动保存在本机'; }
+  try { localStorage.setItem(storageKey, JSON.stringify(snapshotData())); $('#save-status').textContent = '进度自动保存在本机'; }
   catch { $('#save-status').textContent = '当前浏览器无法保存进度'; }
 }
 function renderLevels(): void {
+  const signature = JSON.stringify([selectedWorld, category, level.id, [...solved]]);
+  if (signature === sidebarSignature) return; sidebarSignature = signature;
   const world = currentWorld(), available = new Set(unlockedWorlds(data, solved).map(w => w.id));
   const list = data.levels.filter(l => l.category === category && (category === 'lab' || (l.worldId ?? data.world) === selectedWorld));
-  $('#world-picker').innerHTML = (data.worlds ?? [world]).map(w => `<option value="${w.id}" ${w.id === selectedWorld ? 'selected' : ''} ${available.has(w.id) ? '' : 'disabled'}>世界 ${w.index} · ${w.title}${w.supported ? available.has(w.id) ? '' : ' · 未解锁' : ' · 尚未开放'}</option>`).join('');
-  $('#chapter-eyebrow').textContent = `WORLD ${String(world.index).padStart(2, '0')} / ${(data.worlds ?? [world]).length}`;
+  $('#world-picker').innerHTML = (data.worlds ?? [world]).map(w => `<option value="${w.id}" ${w.id === selectedWorld ? 'selected' : ''} ${available.has(w.id) ? '' : 'disabled'}>${w.index === 0 ? '大世界' : `世界 ${w.index} · ${w.title}`}${w.supported ? available.has(w.id) ? '' : ' · 未解锁' : ' · 尚未开放'}</option>`).join('');
+  $('#chapter-eyebrow').textContent = world.index === 0 ? 'OVERWORLD' : `WORLD ${String(world.index).padStart(2, '0')}`;
+  $('#hub-button').hidden = !data.hub || selectedWorld === data.hub;
   $('#header-world').textContent = world.title;
   $('#world-title').textContent = world.title; const subtitle = document.createElement('span'); subtitle.textContent = world.description; $('#world-title').append(subtitle);
   for (const key of ['main', 'extra', 'lab'] as const) $(`#${key}-tab small`).textContent = String(data.levels.filter(l => l.category === key && (key === 'lab' || (l.worldId ?? data.world) === selectedWorld)).length);
@@ -132,7 +141,7 @@ function renderLevels(): void {
 }
 function renderHud(): void {
   $('.play-area').setAttribute('aria-busy', String(resolving));
-  $('#breadcrumb-world').textContent = `世界 ${String(currentWorld().index).padStart(2, '0')}`;
+  $('#breadcrumb-world').textContent = currentWorld().index === 0 ? '大世界' : `世界 ${String(currentWorld().index).padStart(2, '0')}`;
   $('#move-count').textContent = String(state.moves).padStart(3, '0'); $('#push-count').textContent = String(state.pushes).padStart(3, '0');
   $('#level-title').textContent = levelName(level); $('#level-badge').textContent = level.label.replace('-', '—');
   $('#breadcrumb-level').textContent = level.category === 'world' ? '世界地图' : level.category === 'hint' ? `${level.label} 提示` : level.category === 'lab' ? '机制实验室' : `关卡 ${level.label.split('-')[1]}`;
@@ -147,12 +156,13 @@ function renderHud(): void {
   if (state.solved) message.innerHTML = `<span class="message-symbol">${icon('check')}</span><small>EQUILIBRIUM REACHED</small><h3>找到平衡。</h3><p>${state.moves} 步 · ${state.pushes} 次推动</p><div>${canExit() ? '<button id="finish-return" class="primary-button">返回 ' + (session.hints.length ? '关卡' : '上层场景') + icon('right') + '</button>' : '<button id="next-level" class="primary-button">下一关' + icon('right') + '</button><button id="finish-map" class="secondary-button">世界地图</button>'}</div>`;
   else if (state.phase === 'cycling') message.innerHTML = `<h3>循环结算中</h3><p>活塞进入循环，按 Z 撤销或 R 重置。</p><button id="frozen-undo" class="primary-button">撤销一步 <kbd>Z</kbd></button>`;
 }
-function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { recordState(session, state, level); solved = new Set(session.solved); scene.setThinking(session.hints.length > 0); scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
-function cancelPlayback(): void { playback++; resolving = false; scene.cancelMotionWaits(); }
+function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
+function cancelPlayback(): void { playback++; resolving = false; queuedDirection = undefined; clearTimeout(inputTimer); releaseDetail?.(); $('#step-status').hidden = true; scene.cancelMotionWaits(); }
 function load(id: string, outside: Temperature = 0, existing?: State, preserveCamera = false): void {
   const found = levelsById.get(id); if (!found) { notify('这个入口通向当前版本范围之外的场景。'); return; }
   cancelPlayback(); level = found; state = existing ? cloneState(existing) : initialState(level, solved, outside);
   syncExteriorTemperature(level, state);
+  recordState(session, state, level); solved = new Set(session.solved);
   if (level.worldId) selectedWorld = level.worldId;
   if (level.category === 'extra') category = 'extra'; else if (level.category === 'main' || level.category === 'world') category = 'main'; else if (level.category === 'lab') category = 'lab';
   scene.load(level, state, levelLabels(data.levels), preserveCamera); display(true); $('#hover-info').hidden = true;
@@ -164,20 +174,37 @@ function selectLevel(id: string): void {
   remember(); session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
 }
 async function step(direction: Direction): Promise<void> {
-  if (resolving || performance.now() - inputTime < 95) return; inputTime = performance.now();
+  if (resolving) { queuedDirection = direction; return; }
+  const cooldown = 90 - (performance.now() - inputTime);
+  if (cooldown > 0) { queuedDirection = direction; clearTimeout(inputTimer); inputTimer = setTimeout(flushInput, cooldown); return; }
+  queuedDirection = undefined; clearTimeout(inputTimer); inputTime = performance.now();
   const next = move(level, state, direction); if (!next) return;
   remember(); const pushing = next.pushes > state.pushes; state = next;
   recordState(session, state, level); solved = new Set(session.solved);
   playTone(state.solved ? 'solve' : pushing ? 'push' : 'move');
   const token = ++playback;
   resolving = state.solved;
-  if (next.pistons?.length && next.turnFrames && next.turnFrames.length > 2) {
+  if (next.turnFrames && (ctrlHeld || next.turnFrames.length > 2)) {
     resolving = true; renderHud(); renderLevels(); save();
-    const frames = next.turnFrames;
-    for (const frame of frames) {
+    let index = 0;
+    while (ctrlHeld && index < next.turnFrames.length) {
+      if (token !== playback) return;
+      const frame = next.turnFrames[index++];
+      $('#step-status').hidden = false;
+      $('#step-status').textContent = `Ctrl · ${index}/${next.turnFrames.length} · ${frame.phase === 'heat' ? '热量平衡' : '移动与活塞'}`;
+      scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+      await new Promise<void>(resolve => {
+        const finish = () => { clearTimeout(timer); if (releaseDetail === finish) releaseDetail = undefined; resolve(); };
+        const timer = setTimeout(finish, 260); releaseDetail = finish;
+      });
+    }
+    $('#step-status').hidden = true;
+    const started = performance.now();
+    for (const { frame, at } of turnPlayback(next.turnFrames.slice(index))) {
+      const delay = at - (performance.now() - started);
+      if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
       if (token !== playback) return;
       scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving');
-      await new Promise(resolve => setTimeout(resolve, frame.phase === 'heat' ? 380 : 200));
     }
     if (token !== playback) return; resolving = state.solved;
   }
@@ -189,7 +216,9 @@ async function step(direction: Direction): Promise<void> {
     renderHud();
   }
   if (state.solved && canExit()) { const next = exitLevel(data, session); if (next) { remember(); session = next; load(next.current.levelId, next.current.outside, next.current); notify('关卡完成，已返回上层场景。'); } }
+  flushInput();
 }
+function flushInput(): void { if (!resolving && queuedDirection !== undefined) { const direction = queuedDirection; queuedDirection = undefined; void step(direction); } }
 function restore(s: Snapshot): void { const sameLevel = level.id === s.current.levelId; session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current, sameLevel); }
 function undo(): void { const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
 function redo(): void { const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
@@ -237,16 +266,38 @@ function applyPreferences(): void {
   try { localStorage.setItem(preferencesKey, JSON.stringify(preferences)); } catch { /* Preferences can remain in memory. */ }
 }
 function toggleFreeView(): void { preferences.freeView = !preferences.freeView; applyPreferences(); }
+function updateFullscreen(): void {
+  const active = document.fullscreenElement === $('.play-area') || $('.play-area').classList.contains('fullscreen-fallback');
+  $('#fullscreen-button').setAttribute('aria-pressed', String(active));
+  $('#fullscreen-button').setAttribute('aria-label', active ? '退出全屏' : '全屏游玩');
+  $('#fullscreen-button span').textContent = active ? '退出全屏' : '全屏';
+}
+async function toggleFullscreen(): Promise<void> {
+  const playArea = $('.play-area');
+  if (document.fullscreenElement === playArea) await document.exitFullscreen();
+  else if (playArea.classList.contains('fullscreen-fallback')) playArea.classList.remove('fullscreen-fallback');
+  else {
+    document.querySelectorAll('dialog').forEach(dialog => playArea.append(dialog));
+    try { await playArea.requestFullscreen(); }
+    catch { playArea.classList.add('fullscreen-fallback'); }
+  }
+  updateFullscreen();
+}
 function bind(): void {
   $('#level-list').addEventListener('click', e => { const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-level]'); if (button) selectLevel(button.dataset.level!); });
   $('#main-tab').onclick = () => { category = 'main'; renderLevels(); }; $('#extra-tab').onclick = () => { category = 'extra'; renderLevels(); };
   $('#lab-tab').onclick = () => { category = 'lab'; renderLevels(); };
   $('#world-button').onclick = $('#breadcrumb-world').onclick = () => selectLevel(selectedWorld);
   $('#world-picker').onchange = () => selectLevel($<HTMLSelectElement>('#world-picker').value);
-  $('.brand').onclick = e => { e.preventDefault(); selectLevel(data.levels.find(l => l.category === 'main')!.id); };
+  $('#hub-button').onclick = () => { if (data.hub) selectLevel(data.hub); };
+  $('.brand').onclick = e => { e.preventDefault(); selectLevel(data.hub ?? data.world); };
   $('#undo-button').onclick = undo; $('#redo-button').onclick = redo; $('#reset-button').onclick = reset;
   $('#camera-button').onclick = () => { scene.resetCamera(); notify('镜头已回到默认位置。'); };
   $('#free-view-button').onclick = toggleFreeView;
+  $('#fullscreen-button').onclick = () => { void toggleFullscreen(); };
+  document.addEventListener('fullscreenchange', updateFullscreen);
+  document.addEventListener('keyup', e => { ctrlHeld = e.ctrlKey; if (!ctrlHeld) releaseDetail?.(); });
+  window.addEventListener('blur', () => { ctrlHeld = false; releaseDetail?.(); });
   $('#help-button').onclick = () => $<HTMLDialogElement>('#help-dialog').showModal(); $('#settings-button').onclick = () => $<HTMLDialogElement>('#settings-dialog').showModal();
   $('#sound-button').onclick = () => { preferences.sound = !preferences.sound; applyPreferences(); };
   $('#hint-button').onclick = requestHint; $('#start-hint-button').onclick = startHint; $('#enter-button').onclick = () => enter();
@@ -266,13 +317,17 @@ function bind(): void {
   $('#free-view-input').onchange = () => { preferences.freeView = $<HTMLInputElement>('#free-view-input').checked; applyPreferences(); };
   $('#settings-reset').onclick = () => { preferences = { ...preferences, tilt: 32, light: 1.05, quality: true, grid: false, freeView: false }; applyPreferences(); scene.resetCamera(); };
   document.addEventListener('keydown', e => {
-    if (document.querySelector('dialog[open]') || e.ctrlKey || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select')) return;
+    ctrlHeld = e.ctrlKey;
+    if (document.querySelector('dialog[open]') || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select')) return;
     const key = e.key.toLowerCase(); const keys: Record<string, Direction> = { arrowleft: 0, a: 0, arrowdown: 1, s: 1, arrowright: 2, d: 2, arrowup: 3, w: 3 };
     if (key in keys) { e.preventDefault(); step(keys[key]); }
+    else if (e.ctrlKey) return;
     else if (key === 'tab' && state.pistons?.some(p => p.model === 'boundary') && (e.target === document.body || (e.target as HTMLElement).matches('canvas'))) { e.preventDefault(); $('#piston-number-button').click(); }
     else if (key === 'z' || key === 'u') { e.preventDefault(); undo(); }
     else if (key === 'y') redo(); else if (key === 'r') reset(); else if (key === 'f') toggleFreeView(); else if (key === 'e' || key === 'enter' || key === ' ') { e.preventDefault(); if (!resolving) { if (state.solved) canExit() ? exit() : nextLevel(); else enter(); } }
     else if (key === 'q' || key === 'backspace') { e.preventDefault(); exit(); } else if (key === 'h') requestHint();
+    else if (key === 'v') { e.preventDefault(); void toggleFullscreen(); }
+    else if (key === 'escape' && (document.fullscreenElement === $('.play-area') || $('.play-area').classList.contains('fullscreen-fallback'))) { e.preventDefault(); void toggleFullscreen(); }
   });
   scene.onPortalClick = target => enter(target);
   scene.onStatus = (temperature, status) => {
@@ -313,9 +368,9 @@ async function start(): Promise<void> {
     selectedWorld = data.world;
     let saved: Snapshot | undefined;
     try { const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null'); if (value && levelsById.has(value.current?.levelId) && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) saved = value; } catch { /* Invalid saved data starts a new session. */ }
-    if (saved) { session = saved; solved = new Set(saved.solved); load(saved.current.levelId, saved.current.outside, saved.current); }
+    if (saved) { session = completeHierarchy(data, saved); solved = new Set(saved.solved); load(saved.current.levelId, saved.current.outside, saved.current); }
     else {
-      const first = data.levels.find(l => l.category === 'main')!;
+      const first = data.levels.find(l => l.category === 'main' && l.worldId === data.world)!;
       session = selectSession(data, first);
       try {
         const legacy = JSON.parse(localStorage.getItem('maxwell3d-save-v1') ?? 'null');

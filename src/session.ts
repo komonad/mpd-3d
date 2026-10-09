@@ -40,6 +40,12 @@ export function selectSession(data: Dataset, level: Level, solved: string[] = []
   return session;
 }
 
+export function completeHierarchy(data: Dataset, session: Session): Session {
+  const level = data.levels.find(l => l.id === session.current.levelId); if (!level) return session;
+  const hierarchy = selectSession(data, level, session.solved, session.visited);
+  return { ...session, entries: { ...hierarchy.entries, ...session.entries }, states: { ...hierarchy.states, ...session.states }, baselines: { ...hierarchy.baselines, ...session.baselines } };
+}
+
 export function recordState(session: Session, state: State, level: Level): void {
   session.current = state; session.states[state.levelId] = cloneState(state);
   if (state.solved && level.category !== 'hint' && level.category !== 'lab' && !session.solved.includes(level.id)) session.solved.push(level.id);
@@ -87,21 +93,24 @@ export function resetState(current: State, baseline: State, solved: string[]): S
     ...baseline.players.filter(p => p.key === undefined || !playerKeys.has(p.key)).map(p => ({ object: structuredClone(p), depth: depth(p, baseline.cells), retained: false, player: true })),
     ...retainedCells.map(c => ({ object: structuredClone(c), depth: depth(c, current.cells), retained: true, player: false })),
     ...retainedPlayers.map(p => ({ object: structuredClone(p), depth: depth(p, current.cells), retained: true, player: true })),
-  ].sort((a, b) => a.depth - b.depth || Number(b.retained) - Number(a.retained));
+  ].sort((a, b) => Number(b.retained) - Number(a.retained) || a.depth - b.depth);
   restored.cells = []; restored.players = [];
-  const positions = new Map<string, typeof candidates[number]>();
+  const positions = new Map<string, Map<number, typeof candidates[number]>>();
+  const compressed = (candidate: typeof candidates[number]) => !candidate.player && pistons.some(p => p.baseKey === (candidate.object as Cell).key && p.model === 'boundary' && !p.expanded);
   for (const candidate of candidates) {
-    const { object, depth: layer } = candidate, coordinate = `${object.x},${object.y}`, at = `${coordinate}:${layer}`;
-    if (positions.has(at)) continue;
-    if (layer) {
-      const parent = positions.get(`${coordinate}:${layer - 1}`);
-      if (!parent || parent.player) continue;
-      const container = parent.object as Cell, piston = pistons.find(p => p.baseKey === container.key && p.model === 'boundary' && !p.expanded);
-      if (!piston) continue;
-      object.container = container.key;
-    } else delete object.container;
-    positions.set(at, candidate);
-    if (candidate.player) restored.players.push(object as Demon); else restored.cells.push(object as Cell);
+    const { object, depth: layer } = candidate, coordinate = `${object.x},${object.y}`;
+    const at = positions.get(coordinate) ?? new Map<number, typeof candidate>();
+    if (at.has(layer) || [...at].some(([d, occupant]) => d < layer && !compressed(occupant) || d > layer && !compressed(candidate))) continue;
+    at.set(layer, candidate); positions.set(coordinate, at);
+  }
+  for (const at of positions.values()) {
+    let parent: typeof candidates[number] | undefined;
+    for (const candidate of [...at.values()].sort((a, b) => a.depth - b.depth)) {
+      const { object, player } = candidate;
+      if (parent) object.container = (parent.object as Cell).key; else delete object.container;
+      if (player) restored.players.push(object as Demon); else restored.cells.push(object as Cell);
+      parent = candidate;
+    }
   }
   restored.cells.sort((a, b) => a.key - b.key);
   restored.pistons = structuredClone(pistons.filter(p => restored.cells.some(c => c.key === p.baseKey)));
@@ -193,6 +202,8 @@ export function enterHint(data: Dataset, session: Session, id: string): Session 
   const next = structuredClone(session); next.hints.push({ state: cloneState(next.current), levelId: id });
   next.current.players.forEach(p => { if (canMoveDemon(p)) p.awake = false; });
   next.states[next.current.levelId] = cloneState(next.current);
-  next.current = initialState(level, new Set(next.solved), next.current.outside); next.states[id] = cloneState(next.current); next.baselines[id] = cloneState(next.current);
+  next.current = initialState(level, new Set(next.solved), next.current.outside); next.serial++;
+  next.current.players.forEach((p, i) => { p.key = `${id}:${next.serial}:${i}`; });
+  next.states[id] = cloneState(next.current); next.baselines[id] = cloneState(next.current);
   return next;
 }
