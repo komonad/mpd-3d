@@ -1,5 +1,6 @@
 import type { Cell, Direction, Level, Piston, State, TurnFrame } from './types';
 import { bodies, directions, positionKey, transferHeat } from './engine';
+import { actuateBoundary } from './boundary-pistons';
 
 export function pushPlan(level: Level, state: State, x: number, y: number, direction: Direction, forcePlayers = false, ignoredPlayer = -1, ignoredCells = new Set<number>()): { cells: Set<number>; players: Set<number> } | null {
   const delta = directions[direction], groups = bodies(state.cells), cellGroups = new Map<number, Cell[]>();
@@ -55,6 +56,7 @@ export function passiveCompression(level: Level, state: State, head: Cell, direc
 }
 
 function actuate(level: Level, state: State, piston: Piston): boolean {
+  if (piston.model === 'boundary') return actuateBoundary(level, state, piston);
   const base = state.cells.find(c => c.key === piston.baseKey);
   // The thermal actuator uses the anchored housing as its mechanical reference.
   if (!base?.fixed) return false;
@@ -85,11 +87,12 @@ function actuate(level: Level, state: State, piston: Piston): boolean {
   return false;
 }
 
-const signature = (s: State) => JSON.stringify([s.cells.map(c => [c.key, c.x, c.y, c.temperature]).sort((a, b) => a[0] - b[0]), s.players, s.pistons]);
+const signature = (s: State) => JSON.stringify([s.cells.map(c => [c.key, c.x, c.y, c.temperature, c.container ?? -1]).sort((a, b) => a[0] - b[0]), s.players, s.pistons]);
 export function captureFrame(state: State, phase: TurnFrame['phase']): TurnFrame {
   return structuredClone({ cells: state.cells, players: state.players, pistons: state.pistons ?? [], phase });
 }
 export function settleTurn(level: Level, state: State): void {
+  state.transient = false;
   if (!state.pistons?.length) { transferHeat(level, state); state.phase = 'ready'; return; }
   const frames = [captureFrame(state, 'motion')];
   transferHeat(level, state); frames.push(captureFrame(state, 'heat'));

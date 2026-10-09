@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { edge, initialState, move, transferHeat } from '../src/engine';
-import { createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, unlockedWorlds } from '../src/session';
+import { createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds } from '../src/session';
 import { fixedAnchorPoints } from '../src/body-geometry';
 import { laboratory } from '../src/laboratory';
 import type { BlockProperties, Cell, Dataset, Level, Temperature } from '../src/types';
@@ -35,12 +35,15 @@ test('cached rooms retain their layout until an exit resets every entered room',
   assert.equal(s.current.levelId, 'a'); assert.equal(s.states.c.cells[0].x, 2);
 });
 
-test('returning from a hint restores its exact source state and nested exits remain inside the hint', () => {
+test('returning from a hint initializes its source scene and nested exits remain inside the hint', () => {
   const a = level('a', [cell(4, 2)]), hint = { ...level('hint', [portal(2, 2, 'nested')]), category: 'hint' as const }, nested = level('nested', [], undefined, 'hint'), data = catalogue(a, hint, nested);
   const original = createSession(a); original.current.cells[0].x = 5;
   let s = enterHint(data, original, 'hint')!; s = enterPortal(data, s)!;
   s = exitLevel(data, s)!; assert.equal(s.current.levelId, 'hint');
-  s = exitLevel(data, s)!; assert.deepEqual(s.current, original.current);
+  s = exitLevel(data, s)!;
+  assert.equal(s.current.levelId, a.id); assert.equal(s.current.cells[0].x, 4);
+  assert.deepEqual(s.current.players.map(p => [p.x, p.y]), [[1, 2]]);
+  assert.equal(original.current.cells[0].x, 5);
 });
 
 test('shortcuts require discovery and reconstruct intermediate exits', () => {
@@ -59,6 +62,61 @@ test('entry from multiple sides emits multiple demons while other demons remain 
   assert.equal(entered.states.a.players.length, 1); assert.deepEqual(entered.entries.b.directions.sort(), [2, 3]);
   const exited = exitLevel(data, entered)!;
   assert.deepEqual(exited.current.players.map(p => [p.x, p.y]).sort(), [[2, 2], [3, 3], [6, 4]]);
+});
+
+test('simultaneous entry through portals to one room combines temperatures and entry sides', () => {
+  const a = level('a', [portal(2, 2, 'b', false, 1), portal(5, 2, 'b', true, -1)], [{ x: 1, y: 2 }, { x: 6, y: 2 }]);
+  const b = level('b', [], undefined, 'a'), data = catalogue(a, b), original = createSession(a, [], ['b']);
+  const entered = enterPortal(data, original)!;
+  assert.equal(entered.current.outside, 0);
+  assert.equal(entered.states.a.players.length, 0);
+  assert.deepEqual(entered.entries.b.directions.sort(), [0, 2]);
+});
+
+test('exit reloads retentive objects from the level definition and establishes the returned reset baseline', () => {
+  const a = level('a', [portal(2, 2, 'b'), cell(4, 2, 2)]), b = level('b', [], undefined, 'a'), data = catalogue(a, b);
+  const original = createSession(a); original.current.cells[1].x = 6;
+  let session = exitLevel(data, enterPortal(data, original)!)!;
+  assert.equal(session.current.cells[1].x, 4);
+  session.current.players[0].x = 3;
+  session = resetSession(session);
+  assert.deepEqual(session.current.players.map(p => [p.x, p.y]), [[1, 2]]);
+});
+
+test('a selected nested level exits through the canonical chain without spawning duplicate demons', () => {
+  const a = level('a', [portal(2, 2, 'b')]), b = level('b', [portal(3, 2, 'c')], undefined, 'a'), c = level('c', [], undefined, 'b'), data = catalogue(a, b, c);
+  let session = selectSession(data, c);
+  session = exitLevel(data, session)!;
+  assert.equal(session.current.levelId, 'b'); assert.equal(session.current.players.length, 1);
+  session = exitLevel(data, session)!;
+  assert.equal(session.current.levelId, 'a'); assert.equal(session.current.players.length, 1);
+});
+
+test('leaving a hint preserves the canonical exit chain of its source level', () => {
+  const a = level('a', [portal(2, 2, 'b')]), b = level('b', [], undefined, 'a'), hint = { ...level('hint'), category: 'hint' as const }, data = catalogue(a, b, hint);
+  let session = enterHint(data, selectSession(data, b), hint.id)!;
+  session = exitLevel(data, session)!;
+  assert.equal(session.current.levelId, b.id);
+  session = exitLevel(data, session)!;
+  assert.equal(session.current.levelId, a.id); assert.equal(session.current.players.length, 1);
+});
+
+test('transitions remain thermally unsettled until a physical turn and resets restore that phase', () => {
+  const l = level('a', [cell(2, 2, 1)], [{ x: 1, y: 2 }]);
+  let session = createSession(l);
+  assert.equal(session.current.transient, true); assert.equal(session.current.players[0].temperature, 0);
+  recordState(session, move(l, session.current, 3)!, l);
+  assert.equal(session.current.transient, false);
+  session = resetSession(session);
+  assert.equal(session.current.transient, true); assert.equal(session.current.players[0].temperature, 0);
+});
+
+test('thinking demons stay still and wake when heat changes them to hot', () => {
+  const l = level('a', [cell(2, 3, 1)], [{ x: 2, y: 2 }, { x: 5, y: 2 }]), original = initialState(l);
+  original.players[0].awake = false;
+  const next = move(l, original, 2)!;
+  assert.deepEqual(next.players.map(p => [p.x, p.y]), [[2, 2], [6, 2]]);
+  assert.equal(next.players[0].awake, true); assert.equal(next.players[0].temperature, 1);
 });
 
 test('spawn collisions destroy blocks and expose adhesive broken welds', () => {
@@ -85,10 +143,10 @@ test('the fourth temperature only wins a neutral heat balance and transparent ce
   transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]);
 });
 
-test('a fourth-temperature outside reservoir does not override stored hot or cold heat', () => {
+test('an infinite fourth-temperature outside reservoir dominates finite hot or cold heat', () => {
   for (const temperature of [0, 1, -1] as const) {
     const l = level('a', [cell(0, 2, temperature)]), s = initialState(l, new Set(), 2);
-    transferHeat(l, s); assert.equal(s.cells[0].temperature, temperature === 0 ? 2 : temperature);
+    transferHeat(l, s); assert.equal(s.cells[0].temperature, 2);
   }
 });
 
@@ -133,19 +191,19 @@ test('boundary terrain only marks interior turns across concave and multiple inn
   assert.equal(fixedAnchorPoints([{ ...cell(3, 3), fixed: true }]).length, 4);
 });
 
-test('world progression requires completion and never opens unsupported mechanics', () => {
+test('available worlds open independently of completion while unsupported worlds remain unavailable', () => {
   const data = catalogue(level('a', [], undefined), level('b'));
   data.worlds = [1, 2, 3].map(index => ({ id: String(index), index, title: String(index), description: '', supported: index < 3 }));
   data.levels[0].worldId = '1';
-  assert.deepEqual(unlockedWorlds(data, []).map(w => w.index), [1]);
+  assert.deepEqual(unlockedWorlds(data, []).map(w => w.index), [1, 2]);
   assert.deepEqual(unlockedWorlds(data, ['a']).map(w => w.index), [1, 2]);
   assert.deepEqual(unlockedWorlds(data, ['1', '2']).map(w => w.index), [1, 2]);
 });
 
 test('the local catalogue resolves every canonical parent within supported worlds', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, ids = new Set(data.levels.map(l => l.id));
-  assert.equal(data.worlds!.filter(w => w.supported).length, 3);
-  assert.equal(data.levels.length, 227);
+  assert.equal(data.worlds!.filter(w => w.supported).length, 9);
+  assert.equal(data.levels.length, 764);
   assert.ok(data.levels.every(l => !l.parentId || ids.has(l.parentId)));
 });
 

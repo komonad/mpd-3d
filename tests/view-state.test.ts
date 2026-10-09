@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Mesh, MeshBasicMaterial, Raycaster, Vector3 } from 'three';
 import { cameraHalfHeight, demonStatus, followFocus, motionSettled } from '../src/view-state';
-import { exteriorPlainGeometry } from '../src/terrain-geometry';
+import { blockHeight, bodyGeometry } from '../src/body-geometry';
 
 test('follow focus tracks all demons on the ground plane regardless of pose height', () => {
   const first = followFocus([new Vector3(-3, 0.05, 2), new Vector3(5, 0.3, -4)]);
@@ -28,14 +28,16 @@ test('thinking follows hint context while inactivity and heat cycles keep distin
   assert.equal(demonStatus(0, 1, 'idle', false, true, false), '假死');
   assert.equal(demonStatus(1, 2, 'idle', false, true, false), '思考 · 1/2 可行动');
 });
-test('exterior plain extends past the scene while leaving the playable interior open', () => {
-  const geometry = exteriorPlainGeometry(11, 9), material = new MeshBasicMaterial();
+test('the exterior and boundary share one continuous top and rounded interior contour', () => {
+  const walls = Array.from({ length: 11 * 9 }, (_, key) => ({ x: key % 11, y: Math.floor(key / 11), key, fixed: true, storesHeat: true, temperature: 0 as const, edges: 0 })).filter(c => c.x === 0 || c.y === 0 || c.x === 10 || c.y === 8);
+  const geometry = bodyGeometry(walls, blockHeight, { width: 11, height: 9 }), material = new MeshBasicMaterial();
+  geometry.translate(-5, 0, -4); geometry.computeBoundingBox();
   const mesh = new Mesh(geometry, material); mesh.updateMatrixWorld();
   const ray = new Raycaster(new Vector3(0, 10, 0), new Vector3(0, -1, 0));
   assert.equal(ray.intersectObject(mesh).length, 0);
-  for (const [x, z] of [[5.45, 0], [1000, 0], [-1000, 1000], [0, -1000]]) {
+  for (const [x, z] of [[4.7, 0], [5, 0], [5.05, 0], [5.45, 0], [5.5, 0], [6, 0], [1000, 0], [-1000, 1000], [0, -1000]]) {
     ray.set(new Vector3(x, 10, z), new Vector3(0, -1, 0));
-    const hit = ray.intersectObject(mesh)[0]; assert.ok(hit); assert.ok(Math.abs(hit.point.y - 1.016) < 0.00001);
+    const hit = ray.intersectObject(mesh)[0]; assert.ok(hit); assert.ok(Math.abs(hit.point.y - geometry.boundingBox!.max.y) < 0.00001);
   }
   geometry.dispose(); material.dispose();
 });

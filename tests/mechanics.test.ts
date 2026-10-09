@@ -34,7 +34,7 @@ test('the laboratory perimeter is a single rigid wall with one inner contour', (
 });
 test('rounded adhesive layers join without overlapping top strips and cover the full side', () => {
   const layer = bodyLayerGeometry([cell(0, 0, 0, 0, 0xff)], 0.96); layer.computeBoundingBox();
-  assert.ok(Math.abs(layer.boundingBox!.max.y - layer.boundingBox!.min.y - 0.98) < 0.001);
+  assert.ok(Math.abs(layer.boundingBox!.max.y - layer.boundingBox!.min.y - 0.96) < 0.001);
   const positions = layer.getAttribute('position'), normals = layer.getAttribute('normal'); let area = 0;
   for (let i = 0; i < positions.count; i += 3) {
     assert.ok(Number.isFinite(normals.getX(i)) && Number.isFinite(normals.getY(i)));

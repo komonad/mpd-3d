@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import type { Cell, Point } from './types';
 
 interface Segment { a: Point; b: Point; direction: number }
+export const bodyBaseHeight = 0.055;
+export const blockHeight = 0.96;
 const key = (p: Point) => `${p.x},${p.y}`;
 export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { width: number; height: number }): THREE.BufferGeometry {
   const root = cells[0], occupied = new Set(cells.map(key));
@@ -33,7 +35,7 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
   }
   const surfaces = [{ vertices: [] as number[], uv: [] as number[] }, { vertices: [] as number[], uv: [] as number[] }];
   const geometry = new THREE.BufferGeometry();
-  const lo = 0.055, hi = lo + height + 0.02;
+  const lo = bodyBaseHeight, hi = lo + height;
   const vertex = (p: Point, y: number) => [p.x - root.x - 0.5, y, p.y - root.y - 0.5];
   function quad(points: number[][], coordinates: number[][], kind: number): void {
     if (kind !== 2 && kind !== 3) return;
@@ -83,7 +85,8 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
   const vertices: number[] = [], uv: number[] = [];
   surfaces.forEach((s, index) => {
     if (s.vertices.length) geometry.addGroup(vertices.length / 3, s.vertices.length / 3, index);
-    vertices.push(...s.vertices); uv.push(...s.uv);
+    for (const value of s.vertices) vertices.push(value);
+    for (const value of s.uv) uv.push(value);
   });
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geometry.computeVertexNormals();
   return geometry;
@@ -135,7 +138,7 @@ function inset(points: Point[], amount: number): Point[] {
   });
 }
 
-export function bodyGeometry(cells: Cell[], height: number): THREE.BufferGeometry {
+export function bodyGeometry(cells: Cell[], height: number, exterior?: { width: number; height: number }): THREE.BufferGeometry {
   const root = cells[0];
   const uniform = cells.every(c => c.storesHeat === root.storesHeat && c.temperature === root.temperature);
   const contours = bodyContours(cells), outers = contours.filter(p => area(p) > 0), holes = contours.filter(p => area(p) < 0);
@@ -153,10 +156,13 @@ export function bodyGeometry(cells: Cell[], height: number): THREE.BufferGeometr
     }
     target.closePath(); return target;
   };
-  const shapes = outers.map(p => path(p, new THREE.Shape()) as THREE.Shape);
+  const shapes = exterior ? [new THREE.Shape([
+    new THREE.Vector2(-2048 - root.x, -2048 + root.y), new THREE.Vector2(2048 - root.x, -2048 + root.y),
+    new THREE.Vector2(2048 - root.x, 2048 + root.y), new THREE.Vector2(-2048 - root.x, 2048 + root.y),
+  ])] : outers.map(p => path(p, new THREE.Shape()) as THREE.Shape);
   for (const hole of holes) {
     const points = path(hole, new THREE.Path()), test = hole[0];
-    const owner = outers.findIndex(p => {
+    const owner = exterior ? 0 : outers.findIndex(p => {
       let inside = false;
       for (let i = 0, j = p.length - 1; i < p.length; j = i++) if ((p[i].y > test.y) !== (p[j].y > test.y) && test.x < (p[j].x - p[i].x) * (test.y - p[i].y) / (p[j].y - p[i].y) + p[i].x) inside = !inside;
       return inside;
@@ -164,14 +170,14 @@ export function bodyGeometry(cells: Cell[], height: number): THREE.BufferGeometr
     if (owner >= 0) shapes[owner].holes.push(points);
   }
   const geometry = new THREE.ExtrudeGeometry(shapes, { depth: height - 0.06, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3, steps: 1, curveSegments: 8 });
-  geometry.rotateX(-Math.PI / 2); geometry.translate(0, 0.085, 0);
+  geometry.rotateX(-Math.PI / 2); geometry.translate(0, bodyBaseHeight + 0.03, 0);
   geometry.clearGroups(); geometry.addGroup(0, geometry.getAttribute('position').count, 0);
   if (uniform) return geometry;
-  const mixed = partitionBodySurface(cells, geometry); geometry.dispose(); return mixed;
+  const mixed = partitionBodySurface(cells, geometry, exterior); geometry.dispose(); return mixed;
 }
 
-export function bodySurfaceGeometries(cells: Cell[], height: number): { solid?: THREE.BufferGeometry; glass?: THREE.BufferGeometry } {
-  const solid = bodyGeometry(cells, height);
+export function bodySurfaceGeometries(cells: Cell[], height: number, exterior?: { width: number; height: number }): { solid?: THREE.BufferGeometry; glass?: THREE.BufferGeometry } {
+  const solid = bodyGeometry(cells, height, exterior);
   if (cells.every(c => c.storesHeat)) return { solid };
   if (cells.every(c => !c.storesHeat)) return { glass: solid };
   const glass = solid.clone(), groups = solid.groups;
@@ -181,7 +187,7 @@ export function bodySurfaceGeometries(cells: Cell[], height: number): { solid?: 
 }
 
 // Material partitions clip the rounded surface; they never create internal faces.
-export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometry): THREE.BufferGeometry {
+export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometry, exterior?: { width: number; height: number }): THREE.BufferGeometry {
   type Vertex = { p: THREE.Vector3; n: THREE.Vector3; uv: THREE.Vector2 };
   const root = cells[0], byPosition = new Map(cells.map((c, i) => [key(c), i]));
   const buckets = cells.map(() => ({ positions: [] as number[], normals: [] as number[], uv: [] as number[] }));
@@ -200,8 +206,17 @@ export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometr
   for (let i = 0; i < position.count; i += 3) {
     const triangle = [0, 1, 2].map(j => ({ p: new THREE.Vector3().fromBufferAttribute(position, i + j), n: new THREE.Vector3().fromBufferAttribute(normal, i + j), uv: new THREE.Vector2(uv.getX(i + j), uv.getY(i + j)) }));
     const xs = triangle.map(v => v.p.x + root.x), zs = triangle.map(v => v.p.z + root.y);
-    for (let y = Math.floor(Math.min(...zs) + 0.5); y <= Math.floor(Math.max(...zs) + 0.5); y++) {
-      for (let x = Math.floor(Math.min(...xs) + 0.5); x <= Math.floor(Math.max(...xs) + 0.5); x++) {
+    if (exterior) {
+      const west = -root.x - 0.5, east = exterior.width - root.x - 0.5, north = -root.y - 0.5, south = exterior.height - root.y - 0.5;
+      const middle = clip(clip(triangle, 'x', west, 1), 'x', east, -1);
+      for (const polygon of [clip(triangle, 'x', west, -1), clip(triangle, 'x', east, 1), clip(middle, 'z', north, -1), clip(middle, 'z', south, 1)]) {
+        for (let j = 1; j < polygon.length - 1; j++) for (const v of [polygon[0], polygon[j], polygon[j + 1]]) {
+          buckets[0].positions.push(v.p.x, v.p.y, v.p.z); buckets[0].normals.push(v.n.x, v.n.y, v.n.z); buckets[0].uv.push(v.uv.x, v.uv.y);
+        }
+      }
+    }
+    for (let y = Math.max(exterior ? 0 : -Infinity, Math.floor(Math.min(...zs) + 0.5)); y <= Math.min(exterior ? exterior.height - 1 : Infinity, Math.floor(Math.max(...zs) + 0.5)); y++) {
+      for (let x = Math.max(exterior ? 0 : -Infinity, Math.floor(Math.min(...xs) + 0.5)); x <= Math.min(exterior ? exterior.width - 1 : Infinity, Math.floor(Math.max(...xs) + 0.5)); x++) {
         let polygon = clip(triangle, 'x', x - root.x - 0.5, 1);
         polygon = clip(polygon, 'x', x - root.x + 0.5, -1);
         polygon = clip(polygon, 'z', y - root.y - 0.5, 1);
@@ -220,7 +235,12 @@ export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometr
     }
   }
   const geometry = new THREE.BufferGeometry(), positions: number[] = [], normals: number[] = [], coordinates: number[] = [];
-  buckets.forEach((b, i) => { if (b.positions.length) geometry.addGroup(positions.length / 3, b.positions.length / 3, i); positions.push(...b.positions); normals.push(...b.normals); coordinates.push(...b.uv); });
+  buckets.forEach((b, i) => {
+    if (b.positions.length) geometry.addGroup(positions.length / 3, b.positions.length / 3, i);
+    for (const value of b.positions) positions.push(value);
+    for (const value of b.normals) normals.push(value);
+    for (const value of b.uv) coordinates.push(value);
+  });
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3)); geometry.setAttribute('uv', new THREE.Float32BufferAttribute(coordinates, 2));
   return geometry;
 }

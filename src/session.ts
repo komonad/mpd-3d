@@ -1,5 +1,6 @@
-import { availablePortals, cloneState, directions, edge, initialState, opposite } from './engine';
+import { availablePortals, canMoveDemon, cloneState, directions, edge, initialState, opposite, portalPlayers, syncExteriorTemperature } from './engine';
 import type { Cell, Dataset, Demon, Direction, Level, State, World } from './types';
+import { depth, descendants } from './topology';
 
 export interface Entry { parentId: string; portalKey: number; directions: Direction[] }
 export interface HintFrame { state: State; levelId: string }
@@ -15,21 +16,38 @@ export function createSession(level: Level, solved: string[] = [], visited: stri
   return { current, solved: [...solved], visited: [...new Set([...visited, level.id])], states: { [level.id]: cloneState(current) }, baselines: { [level.id]: cloneState(current) }, entries: {}, hints: [], serial: 0 };
 }
 
+export function selectSession(data: Dataset, level: Level, solved: string[] = [], visited: string[] = []): Session {
+  const session = createSession(level, solved, visited), levels = new Map(data.levels.map(l => [l.id, l]));
+  const seen = new Set([level.id]);
+  for (let child = level; child.parentId; ) {
+    const parent = levels.get(child.parentId); if (!parent || seen.has(parent.id)) break;
+    seen.add(parent.id);
+    const state = initialState(parent, new Set(solved)); state.players = [];
+    const entrance = state.cells.find(c => c.portal?.target === child.id && !c.portal.shortcut); if (!entrance) break;
+    const directionsBySpace = [2, 1, 0, 3].sort((a, b) => {
+      const occupied = (direction: number) => state.cells.some(c => c.container === undefined && c.x === entrance.x - directions[direction].x && c.y === entrance.y - directions[direction].y);
+      return Number(occupied(a)) - Number(occupied(b));
+    }) as Direction[];
+    const side = directionsBySpace.find(direction => {
+      const probe = cloneState(state); probe.players = [{ x: entrance.x - directions[direction].x, y: entrance.y - directions[direction].y, temperature: 0 }];
+      return portalPlayers(probe, entrance).length > 0;
+    });
+    if (side === undefined) break;
+    session.entries[child.id] = { parentId: parent.id, portalKey: entrance.key, directions: [side] };
+    session.states[parent.id] = state; session.baselines[parent.id] = cloneState(state);
+    child = parent;
+  }
+  return session;
+}
+
 export function recordState(session: Session, state: State, level: Level): void {
   session.current = state; session.states[state.levelId] = cloneState(state);
   if (state.solved && level.category !== 'hint' && level.category !== 'lab' && !session.solved.includes(level.id)) session.solved.push(level.id);
 }
 
-export function unlockedWorlds(data: Dataset, solved: Iterable<string>): World[] {
-  const completed = new Set(solved), worlds = data.worlds ?? [{ id: data.world, index: 1, title: '温度的世界', description: '冷与热之间，寻找平衡。', supported: true }];
-  let unlocked = true;
-  return worlds.filter((world, i) => {
-    if (i) {
-      const previous = worlds[i - 1], puzzles = data.levels.filter(l => l.worldId === previous.id && l.category === 'main');
-      unlocked &&= completed.has(previous.id) || (puzzles.length > 0 && puzzles.every(l => completed.has(l.id)));
-    }
-    return unlocked && world.supported;
-  });
+export function unlockedWorlds(data: Dataset, _solved: Iterable<string>): World[] {
+  const worlds = data.worlds ?? [{ id: data.world, index: 1, title: '温度的世界', description: '冷与热之间，寻找平衡。', supported: true }];
+  return worlds.filter(world => world.supported);
 }
 
 export function portalCandidates(data: Dataset, session: Session): Cell[] {
@@ -41,36 +59,54 @@ export function portalCandidates(data: Dataset, session: Session): Cell[] {
 }
 
 export function destroyCells(state: State, keys: Set<number>): void {
+  for (const key of [...keys]) descendants(state, key).cells.forEach(c => keys.add(c.key));
   const removed = state.cells.filter(c => keys.has(c.key));
   for (const cell of state.cells) {
     if (keys.has(cell.key)) continue;
     directions.forEach((d, dir) => {
-      if (edge(cell, dir) === 0 && removed.some(c => c.x === cell.x + d.x && c.y === cell.y + d.y && edge(c, opposite(dir)) === 0)) cell.edges |= 3 << (dir * 2);
+      if (edge(cell, dir) === 0 && removed.some(c => c.container === cell.container && c.x === cell.x + d.x && c.y === cell.y + d.y && edge(c, opposite(dir)) === 0)) cell.edges |= 3 << (dir * 2);
     });
   }
   state.cells = state.cells.filter(c => !keys.has(c.key));
+  state.players = state.players.filter(p => p.container === undefined || !keys.has(p.container));
   state.pistons = state.pistons?.filter(p => !keys.has(p.baseKey));
 }
 
 function spawn(state: State, players: Demon[]): void {
-  destroyCells(state, new Set(state.cells.filter(c => players.some(p => p.x === c.x && p.y === c.y)).map(c => c.key)));
-  for (const p of players) if (!state.players.some(existing => existing.x === p.x && existing.y === p.y)) state.players.push(p);
-  state.frozen = state.players.every(p => p.temperature === 1);
+  destroyCells(state, new Set(state.cells.filter(c => players.some(p => p.x === c.x && p.y === c.y && p.container === c.container)).map(c => c.key)));
+  for (const p of players) if (!state.players.some(existing => existing.x === p.x && existing.y === p.y && existing.container === p.container)) state.players.push(p);
+  state.frozen = state.players.every(p => !canMoveDemon(p));
 }
 
 export function resetState(current: State, baseline: State, solved: string[]): State {
   const restored = cloneState(baseline), retainedCells = current.cells.filter(c => c.temperature === 2), retainedPlayers = current.players.filter(p => p.temperature === 2);
-  const occupied = (x: number, y: number) => [...retainedCells, ...retainedPlayers].some(p => p.x === x && p.y === y);
   const retainedKeys = new Set(retainedCells.map(c => c.key)), playerKeys = new Set(retainedPlayers.map(p => p.key));
-  destroyCells(restored, new Set(restored.cells.filter(c => retainedKeys.has(c.key) || occupied(c.x, c.y)).map(c => c.key)));
-  restored.cells.push(...structuredClone(retainedCells));
-  restored.players = restored.players.filter(p => !(p.key !== undefined && playerKeys.has(p.key)) && !occupied(p.x, p.y)).concat(structuredClone(retainedPlayers));
-  restored.pistons = (restored.pistons ?? []).filter(p => restored.cells.some(c => c.key === p.baseKey));
-  for (const p of current.pistons ?? []) if (retainedKeys.has(p.baseKey)) {
-    restored.pistons = restored.pistons.filter(old => old.baseKey !== p.baseKey); restored.pistons.push(structuredClone(p));
+  const pistons = [...(baseline.pistons ?? []).filter(p => !retainedKeys.has(p.baseKey)), ...(current.pistons ?? []).filter(p => retainedKeys.has(p.baseKey))];
+  const candidates = [
+    ...baseline.cells.filter(c => !retainedKeys.has(c.key)).map(c => ({ object: structuredClone(c), depth: depth(c, baseline.cells), retained: false, player: false })),
+    ...baseline.players.filter(p => p.key === undefined || !playerKeys.has(p.key)).map(p => ({ object: structuredClone(p), depth: depth(p, baseline.cells), retained: false, player: true })),
+    ...retainedCells.map(c => ({ object: structuredClone(c), depth: depth(c, current.cells), retained: true, player: false })),
+    ...retainedPlayers.map(p => ({ object: structuredClone(p), depth: depth(p, current.cells), retained: true, player: true })),
+  ].sort((a, b) => a.depth - b.depth || Number(b.retained) - Number(a.retained));
+  restored.cells = []; restored.players = [];
+  const positions = new Map<string, typeof candidates[number]>();
+  for (const candidate of candidates) {
+    const { object, depth: layer } = candidate, coordinate = `${object.x},${object.y}`, at = `${coordinate}:${layer}`;
+    if (positions.has(at)) continue;
+    if (layer) {
+      const parent = positions.get(`${coordinate}:${layer - 1}`);
+      if (!parent || parent.player) continue;
+      const container = parent.object as Cell, piston = pistons.find(p => p.baseKey === container.key && p.model === 'boundary' && !p.expanded);
+      if (!piston) continue;
+      object.container = container.key;
+    } else delete object.container;
+    positions.set(at, candidate);
+    if (candidate.player) restored.players.push(object as Demon); else restored.cells.push(object as Cell);
   }
+  restored.cells.sort((a, b) => a.key - b.key);
+  restored.pistons = structuredClone(pistons.filter(p => restored.cells.some(c => c.key === p.baseKey)));
   for (const c of restored.cells) if (c.portal && solved.includes(c.portal.target) && !retainedKeys.has(c.key)) Object.assign(c, c.portal.after);
-  restored.solved = false; restored.phase = 'ready'; restored.frozen = restored.players.every(p => p.temperature === 1);
+  restored.solved = false; restored.phase = 'ready'; restored.frozen = restored.players.every(p => !canMoveDemon(p));
   return restored;
 }
 
@@ -80,12 +116,21 @@ export function resetSession(session: Session): Session {
   return next;
 }
 
+function initializeRooms(data: Dataset, session: Session): void {
+  for (const id of Object.keys(session.states)) {
+    const level = data.levels.find(l => l.id === id); if (!level) continue;
+    const state = initialState(level, new Set(session.solved)); state.players = [];
+    session.states[id] = state; session.baselines[id] = cloneState(state);
+  }
+}
+
 export function enterPortal(data: Dataset, session: Session, targetId?: string): Session | null {
   if (session.current.solved || session.current.frozen || session.current.phase === 'cycling') return null;
   const portal = portalCandidates(data, session).find(c => !targetId || c.portal!.target === targetId); if (!portal) return null;
   const next = structuredClone(session), levels = new Map(data.levels.map(l => [l.id, l])), target = levels.get(portal.portal!.target)!;
-  const entering = next.current.players.filter(p => p.temperature !== 1 && Math.abs(p.x - portal.x) + Math.abs(p.y - portal.y) === 1);
-  const sides = [...new Set(entering.map(p => directions.findIndex(d => d.x === portal.x - p.x && d.y === portal.y - p.y) as Direction))];
+  const entrances = portalCandidates(data, next).filter(c => c.portal!.target === target.id);
+  const entering = [...new Set(entrances.flatMap(c => portalPlayers(next.current, c)))];
+  const sides = [...new Set(entrances.flatMap(c => portalPlayers(next.current, c).map(p => directions.findIndex(d => d.x === c.x - p.x && d.y === c.y - p.y) as Direction)))];
   next.current.players = next.current.players.filter(p => !entering.includes(p)); next.states[next.current.levelId] = cloneState(next.current);
   if (portal.portal!.shortcut) {
     // Shortcut exits follow the canonical hierarchy, with the entry side inherited at each intermediate level.
@@ -102,7 +147,10 @@ export function enterPortal(data: Dataset, session: Session, targetId?: string):
   } else next.entries[target.id] = { parentId: next.current.levelId, portalKey: portal.key, directions: sides };
   const state = next.states[target.id] ? cloneState(next.states[target.id]) : initialState(target, new Set(next.solved));
   if (!next.states[target.id]) state.players = [];
-  state.outside = portal.temperature; state.solved = false; state.phase = 'ready';
+  const heat = entrances.reduce((sum, c) => sum + (c.temperature === 2 ? 0 : c.temperature), 0);
+  state.outside = heat ? Math.sign(heat) as State['outside'] : entrances.some(c => c.temperature === 2) ? 2 : 0;
+  state.solved = false; state.phase = 'ready'; state.transient = true;
+  syncExteriorTemperature(target, state);
   next.serial++;
   spawn(state, target.players.map((p, i) => ({ ...p, temperature: p.temperature ?? 0, key: `${target.id}:${next.serial}:${i}` })));
   next.current = state; next.states[target.id] = cloneState(state); next.baselines[target.id] = cloneState(state);
@@ -112,25 +160,39 @@ export function enterPortal(data: Dataset, session: Session, targetId?: string):
 
 export function exitLevel(data: Dataset, session: Session): Session | null {
   const next = structuredClone(session), hint = next.hints.at(-1);
-  if (hint?.levelId === next.current.levelId) { next.hints.pop(); next.current = cloneState(hint.state); next.states[next.current.levelId] = cloneState(next.current); return next; }
+  if (hint?.levelId === next.current.levelId) {
+    const source = data.levels.find(l => l.id === hint.state.levelId); if (!source) return null;
+    next.hints.pop();
+    next.current = initialState(source, new Set(next.solved));
+    next.serial++;
+    next.current.players.forEach((p, i) => { p.key = `${source.id}:${next.serial}:${i}`; });
+    initializeRooms(data, next);
+    next.states[source.id] = cloneState(next.current); next.baselines[source.id] = cloneState(next.current);
+    return next;
+  }
   const entry = next.entries[next.current.levelId]; if (!entry) return null;
   const remaining = structuredClone(next.states[entry.parentId]?.players ?? []);
-  for (const [id, current] of Object.entries(next.states)) next.states[id] = resetState(current, next.baselines[id], next.solved);
+  initializeRooms(data, next);
   const parent = next.states[entry.parentId], parentLevel = data.levels.find(l => l.id === entry.parentId);
   if (!parent || !parentLevel) return null;
   const portal = parent.cells.find(c => c.key === entry.portalKey) ?? parentLevel.cells.map((c, key) => ({ ...c, key })).find(c => c.key === entry.portalKey);
   if (!portal) return null;
-  parent.players = remaining.map(p => parent.players.find(initial => initial.key === p.key) ?? p);
+  parent.players = [];
   parent.outside = 0; parent.solved = false;
-  spawn(parent, entry.directions.map((direction, i) => ({ x: portal.x - directions[direction].x, y: portal.y - directions[direction].y, temperature: 0, key: `${parent.levelId}:exit:${++next.serial}:${i}` })));
+  syncExteriorTemperature(parentLevel, parent);
+  spawn(parent, [...remaining, ...entry.directions.map((direction, i) => ({ x: portal.x - directions[direction].x, y: portal.y - directions[direction].y, temperature: 0 as const, key: `${parent.levelId}:exit:${++next.serial}:${i}` }))]);
   next.states[next.current.levelId].players = [];
   next.current = cloneState(parent);
+  next.baselines[parent.levelId] = cloneState(parent);
   return next;
 }
 
 export function enterHint(data: Dataset, session: Session, id: string): Session | null {
+  if (session.current.solved || session.current.frozen || session.current.phase === 'cycling') return null;
   const level = data.levels.find(l => l.id === id); if (!level) return null;
   const next = structuredClone(session); next.hints.push({ state: cloneState(next.current), levelId: id });
+  next.current.players.forEach(p => { if (canMoveDemon(p)) p.awake = false; });
+  next.states[next.current.levelId] = cloneState(next.current);
   next.current = initialState(level, new Set(next.solved), next.current.outside); next.states[id] = cloneState(next.current); next.baselines[id] = cloneState(next.current);
   return next;
 }

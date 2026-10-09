@@ -50,6 +50,22 @@ test('uninsulated boundary couples to the outside reservoir', () => {
   const l = fixture([block(0, 2, 1)]), s = initialState(l, new Set(), -1);
   transferHeat(l, s); assert.equal(s.cells[0].temperature, -1);
 });
+test('fixed exterior walls keep the outside temperature regardless of finite heat capacity', () => {
+  for (const outside of [-1, 0, 1] as const) {
+    const l = fixture([block(0, 2, 1, 0x56, true), ...[1, 2, 3, 4, 5].map(x => block(x, 2, outside === 1 ? -1 : 1))], [{ x: 1, y: 3 }]);
+    const s = initialState(l, new Set(), outside);
+    assert.equal(s.cells[0].temperature, outside); transferHeat(l, s);
+    assert.ok(s.cells.every(c => c.temperature === outside)); assert.equal(s.players[0].temperature, outside);
+  }
+});
+test('insulation isolates finite adhesive loads from the exterior reservoir', () => {
+  const l = fixture([block(0, 2, 1, 0x26, true), block(1, 2, 1, 0x57)], [{ x: 1, y: 4 }]), s = initialState(l);
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 1]);
+});
+test('fixed interior bodies have finite heat capacity', () => {
+  const l = fixture([block(3, 2, 0, 0x55, true), block(4, 2, 1)], [{ x: 1, y: 4 }]), s = initialState(l);
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [1, 1]);
+});
 test('solved portals load their transformed properties', () => {
   const c = { ...block(3, 2, 1, 0xaa, true), portal: { target: 'child', shortcut: false, before: block(3, 2, 1, 0xaa, true), after: block(3, 2, -1) } };
   const s = initialState(fixture([c]), new Set(['child'])); assert.equal(s.cells[0].temperature, -1); assert.equal(s.cells[0].fixed, false);

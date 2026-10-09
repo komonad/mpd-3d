@@ -7,27 +7,31 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bodies } from './engine';
-import { bodyLayerGeometry, bodySurfaceGeometries, fixedAnchorPoints } from './body-geometry';
+import { blockHeight, bodyLayerGeometry, bodySurfaceGeometries, fixedAnchorPoints } from './body-geometry';
 import { fitShadowCamera, renderPixelRatio } from './render-quality';
 import { adhesiveTexture } from './surface-materials';
 import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
 import { cameraHalfHeight, demonStatus, followFocus, motionSettled } from './view-state';
-import { exteriorPlainGeometry } from './terrain-geometry';
-import type { Cell, Level, State, Temperature } from './types';
+import { depth, directions, opposite } from './topology';
+import { portalLabel, type levelLabels } from './level-labels';
+import type { Cell, Level, Piston, State, Temperature } from './types';
 
 const palette = { wall: '#aab1b6', neutral: '#bec5ca', hot: '#d94e28', cold: '#298fcd', demon: '#b9c0c5', floor: '#eef0ec' };
 const thermalColor = (t: Temperature) => t === 1 ? palette.hot : t === -1 ? palette.cold : t === 2 ? '#55a779' : palette.neutral;
 
 interface DemonVisual {
   group: THREE.Group; target: THREE.Vector3; material: THREE.MeshStandardMaterial; temperature: Temperature;
-  face: THREE.Group; eyes: THREE.Group; faintEyes: THREE.Group;
+  face: THREE.Group; eyes: THREE.Group; faintEyes: THREE.Group; thinkingEyes: THREE.Group; awake: boolean;
 }
 
-function labelTexture(text: string, dark = false): THREE.CanvasTexture {
+function labelTexture(text: string, weight = 700): THREE.CanvasTexture {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext('2d')!; ctx.font = '600 45px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = dark ? '#ffffff' : '#292929'; ctx.fillText(text, 64, 66);
+  const lines = text.split(':'), ctx = canvas.getContext('2d')!;
+  ctx.font = `${weight} 45px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const size = Math.min(45, 104 / lines.length, 45 * 112 / Math.max(1, ...lines.map(line => ctx.measureText(line).width)));
+  ctx.font = `${weight} ${size}px sans-serif`; ctx.fillStyle = '#000000';
+  lines.forEach((line, i) => ctx.fillText(line, 64, 66 + (i - (lines.length - 1) / 2) * size * 1.1));
   return new THREE.CanvasTexture(canvas);
 }
 
@@ -42,23 +46,23 @@ export class GameScene {
   private board = new THREE.Group();
   private pieces = new Map<number, THREE.Group>();
   private demons: DemonVisual[] = [];
-  private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, transparent: true, opacity: 1, alphaTest: 0.12, alphaToCoverage: true, depthWrite: false });
+  private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   private parts = new THREE.Group();
   private bodySignature = '';
-  private labels = new Map<string, string>();
+  private labels: ReturnType<typeof levelLabels> = new Map();
   private shownState?: State;
   private activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle';
   private pistonRods: { rod: THREE.Mesh; target: number; direction: number }[] = [];
+  private pistonNumbers = false;
   private level?: Level;
   private previousTime = performance.now();
   private targets = new Map<number, THREE.Vector3>();
   private lastStep = 0;
-  private rings: THREE.Mesh[] = [];
-  private goalLights: THREE.PointLight[] = [];
   private gridMeshes: THREE.Object3D[] = [];
   private raycaster = new THREE.Raycaster();
   private noteMarkers: THREE.Object3D[] = [];
   private pointer = new THREE.Vector2();
+  private hoverEvent?: PointerEvent;
   private size = new THREE.Vector2();
   private tilt = 32;
   private azimuth = -9;
@@ -66,9 +70,7 @@ export class GameScene {
   private freeView = false;
   private thinking = false;
   private motionWaiters: ((settled: boolean) => void)[] = [];
-  private exteriorMaterial?: THREE.MeshPhysicalMaterial;
-  private exteriorCellKey?: number;
-  onHover?: (cellKey: number | null) => void;
+  onHover?: (cellKey: number | null, state?: State) => void;
   onPortalClick?: (target: string) => void;
   onNoteClick?: (text: string) => void;
   onStatus?: (temperature: Temperature, status: string) => void;
@@ -116,7 +118,7 @@ export class GameScene {
     new ResizeObserver(() => this.resize()).observe(host);
     this.renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
     this.renderer.domElement.addEventListener('pointermove', e => this.hover(e));
-    this.renderer.domElement.addEventListener('pointerleave', () => this.onHover?.(null));
+    this.renderer.domElement.addEventListener('pointerleave', () => { this.hoverEvent = undefined; this.onHover?.(null); });
     this.renderer.domElement.addEventListener('click', e => {
       const hit = this.hit(e); if (hit?.userData.portal) this.onPortalClick?.(hit.userData.portal as string);
       if (hit?.userData.note) this.onNoteClick?.(hit.userData.note as string);
@@ -136,10 +138,10 @@ export class GameScene {
   }
 
   private makeDemon(): DemonVisual {
-    const group = new THREE.Group(), face = new THREE.Group(), eyes = new THREE.Group(), faintEyes = new THREE.Group();
+    const group = new THREE.Group(), face = new THREE.Group(), eyes = new THREE.Group(), faintEyes = new THREE.Group(), thinkingEyes = new THREE.Group();
     const matte = (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0, envMapIntensity: 0 });
     const material = matte(palette.demon), ink = new THREE.MeshBasicMaterial({ color: '#263039' });
-    face.position.y = 0.56; group.add(face); face.add(eyes, faintEyes);
+    face.position.y = 0.56; group.add(face); face.add(eyes, faintEyes, thinkingEyes);
     this.mesh(new THREE.SphereGeometry(0.48, 40, 32), material, group, 0, 0.56, 0);
     const stroke = (points: number[][], parent: THREE.Group, radius = 0.014) => {
       const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p as [number, number, number])), false, 'centripetal');
@@ -148,6 +150,7 @@ export class GameScene {
     const facial = (points: number[][], parent: THREE.Group) => stroke(points.map(([x, y]) => [x, y, Math.sqrt(0.48 ** 2 - x ** 2 - y ** 2) + 0.008]), parent);
     for (const side of [-1, 1]) {
       facial([[side * 0.095, 0.08], [side * 0.095, 0.23]], eyes);
+      facial([[side * 0.095 - 0.07, 0.15], [side * 0.095 + 0.07, 0.15]], thinkingEyes);
       for (const slope of [-1, 1]) facial([[side * 0.12 - 0.06, 0.15 - slope * 0.06], [side * 0.12 + 0.06, 0.15 + slope * 0.06]], faintEyes);
       const horn = new THREE.CurvePath<THREE.Vector3>();
       const points = [[side * 0.21, 0.42, 0], [side * 0.4, 0.58, 0], [side * 0.35, 0.32, 0]].map(p => new THREE.Vector3(...p as [number, number, number]));
@@ -156,8 +159,8 @@ export class GameScene {
       stroke([[side * 0.43, 0.14, 0], [side * 0.63, 0.2, 0], [side * 0.65, 0.02, 0], [side * 0.63, -0.14, 0], [side * 0.43, -0.04, 0]], face);
     }
     stroke([[-0.26, -0.4, 0], [-0.4, -0.47, 0], [-0.48, -0.43, 0], [-0.55, -0.49, 0], [-0.64, -0.45, 0]], face, 0.013);
-    faintEyes.visible = false;
-    return { group, target: new THREE.Vector3(), material, temperature: 0, face, eyes, faintEyes };
+    faintEyes.visible = false; thinkingEyes.visible = false;
+    return { group, target: new THREE.Vector3(), material, temperature: 0, face, eyes, faintEyes, thinkingEyes, awake: true };
   }
 
   private characterFocus(): THREE.Vector3 {
@@ -172,7 +175,7 @@ export class GameScene {
 
   private makeBody(cells: Cell[], state: State): THREE.Group {
     const root = cells[0], g = new THREE.Group(), fixed = cells.some(c => c.fixed);
-    const height = 0.96;
+    const height = blockHeight;
     const uniform = cells.every(c => c.storesHeat === root.storesHeat && c.temperature === root.temperature);
     const materials = (uniform ? [root] : cells).map(cell => {
       const material = this.physical(thermalColor(cell.temperature), fixed); this.paint(material, cell, fixed);
@@ -184,44 +187,83 @@ export class GameScene {
       }
       return material;
     });
-    const surfaces = bodySurfaceGeometries(cells, height);
-    for (const [kind, geometry] of Object.entries(surfaces)) {
+    const hollow = new Set((state.pistons ?? []).filter(p => p.model === 'boundary' && !p.expanded).map(p => p.baseKey));
+    const solidCells = cells.filter(c => !hollow.has(c.key));
+    const occupied = new Set(solidCells.map(c => `${c.x},${c.y}`)), level = this.level!;
+    const exterior = fixed && solidCells.every(c => c.container === undefined) &&
+      Array.from({ length: level.width }, (_, x) => occupied.has(`${x},0`) && occupied.has(`${x},${level.height - 1}`)).every(Boolean) &&
+      Array.from({ length: level.height }, (_, y) => occupied.has(`0,${y}`) && occupied.has(`${level.width - 1},${y}`)).every(Boolean);
+    const surfaces = solidCells.length ? bodySurfaceGeometries(solidCells, height, exterior ? level : undefined) : {};
+    for (const [kind, geometry] of Object.entries(surfaces) as [string, THREE.BufferGeometry][]) {
+      geometry.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
+      geometry.groups.forEach(group => { group.materialIndex = uniform ? 0 : cells.indexOf(solidCells[group.materialIndex ?? 0]); });
       const core = new THREE.Mesh(geometry, materials); core.castShadow = kind === 'solid'; core.receiveShadow = true;
       core.userData.transmissiveOnly = kind === 'glass'; g.add(core);
     }
     g.userData.key = root.key; g.userData.cellKeys = cells.map(c => c.key); g.userData.materials = materials; g.userData.uniform = uniform;
-    const glass = cells.filter(c => !c.storesHeat);
+    const glass = solidCells.filter(c => !c.storesHeat);
     if (glass.length) {
       const rimMaterial = new THREE.MeshPhysicalMaterial({ color: '#5e707c', roughness: 0.24, metalness: 0.2, transparent: true, opacity: 0.72, depthWrite: false });
-      const rim = new THREE.Mesh(glassRimGeometry(cells, height), rimMaterial);
+      const rimGeometry = glassRimGeometry(solidCells, height); rimGeometry.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
+      const rim = new THREE.Mesh(rimGeometry, rimMaterial);
       rim.userData.transmissiveOnly = true; g.add(rim);
       g.userData.glassRim = { material: rimMaterial, cellKey: glass[0].key };
     }
     const delta = [[-1, 0], [0, 1], [1, 0], [0, -1]];
-    const exterior = fixed && cells.some(c => c.x === 0 || c.y === 0 || c.x === this.level!.width - 1 || c.y === this.level!.height - 1);
-    const layer = bodyLayerGeometry(cells, height, exterior ? this.level : undefined);
-    if (layer.getAttribute('position').count) {
+    const layer = solidCells.length ? bodyLayerGeometry(solidCells, height, exterior ? this.level : undefined) : new THREE.BufferGeometry();
+    if (solidCells.length) layer.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
+    if (layer.getAttribute('position')?.count) {
       layer.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(layer.getAttribute('position').count * 3), 3));
       g.userData.surfaceLayer = layer;
       const insulation = this.physical('#fcfcfa'); insulation.roughness = 0.9; insulation.metalness = insulation.clearcoat = 0;
+      insulation.polygonOffset = true; insulation.polygonOffsetFactor = -2; insulation.polygonOffsetUnits = -2;
       this.mesh(layer, [insulation, this.adhesiveMaterial], g);
     } else layer.dispose();
     for (const cell of cells) {
       const x = cell.x - root.x, z = cell.y - root.y;
       if (cell.portal) {
-        const mark = this.mesh(new THREE.PlaneGeometry(0.58, 0.58), new THREE.MeshBasicMaterial({ map: labelTexture(this.labels.get(cell.portal.target)?.replace('1-', '') ?? '↗', fixed), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
+        const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(portalLabel(cell, this.labels), cell.portal.shortcut ? 600 : 700), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
         mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.portal = cell.portal.target;
       }
       const piston = state.pistons?.find(p => p.baseKey === cell.key);
       if (piston) {
+        if (piston.model === 'boundary') {
+          const material = materials[uniform ? 0 : cells.indexOf(cell)];
+          if (!piston.expanded) {
+            for (let side = 0; side < 4; side++) {
+              if (side === piston.direction) continue;
+              const d = directions[side], horizontal = side % 2 === 1;
+              this.mesh(new RoundedBoxGeometry(horizontal ? 0.96 : 0.075, height, horizontal ? 0.075 : 0.96, 3, 0.02), material, g, x + d.x * 0.44, 0.55, z + d.y * 0.44);
+              const inner = new THREE.MeshStandardMaterial({ color: '#fcfcfa', roughness: 0.9 });
+              this.mesh(new RoundedBoxGeometry(horizontal ? 0.86 : 0.012, 0.85, horizontal ? 0.012 : 0.86, 2, 0.005), inner, g, x + d.x * 0.397, 0.55, z + d.y * 0.397);
+            }
+            this.mesh(new RoundedBoxGeometry(0.88, 0.045, 0.88, 3, 0.015), new THREE.MeshStandardMaterial({ color: '#f5f5f5', roughness: 0.9 }), g, x, 0.09, z);
+          }
+          const frame = new THREE.MeshStandardMaterial({ color: '#8d979e', roughness: 0.8 });
+          for (const a of [-1, 1]) for (const b of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.055, 0.055, 0.96, 3, 0.01), frame, g, x + a * 0.46, b > 0 ? 1.06 : 0.065, z);
+          for (const side of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.96, 0.055, 0.055, 3, 0.01), frame, g, x, 1.06, z + side * 0.46);
+          const back = directions[opposite(piston.direction)], front = directions[piston.direction], tangent = { x: -front.y, y: front.x };
+          const metal = new THREE.MeshStandardMaterial({ color: '#50585e', roughness: 0.75, metalness: 0.15 });
+          const plateAt = piston.expanded ? 0.455 : -0.34, horizontal = piston.direction % 2 === 1;
+          const plate = this.mesh(new RoundedBoxGeometry(horizontal ? 0.78 : 0.05, 0.8, horizontal ? 0.05 : 0.78, 3, 0.012), material, g, x + front.x * plateAt, 0.52, z + front.y * plateAt);
+          plate.userData.pistonFace = true; plate.userData.expanded = piston.expanded;
+          for (const side of [-1, 1]) {
+            const rail = this.mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.82, 10), metal, g, x + tangent.x * side * 0.26, 0.96, z + tangent.y * side * 0.26);
+            rail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(front.x, 0, front.y));
+          }
+          this.mesh(new RoundedBoxGeometry(horizontal ? 0.48 : 0.035, 0.035, horizontal ? 0.035 : 0.48, 2, 0.008), metal, g, x + front.x * (plateAt + 0.065), 0.78, z + front.y * (plateAt + 0.065));
+          this.pistonArrow(piston, state, g, x + back.x * 0.28, 1.105, z + back.y * 0.28);
+          const number = this.mesh(new THREE.PlaneGeometry(0.28, 0.28), new THREE.MeshBasicMaterial({ map: labelTexture(String(piston.order)), transparent: true, depthWrite: false }), g, x - back.x * 0.28, 1.115, z - back.y * 0.28);
+          number.rotation.x = -Math.PI / 2; number.visible = this.pistonNumbers; number.userData.pistonNumber = true;
+          continue;
+        }
         const metal = new THREE.MeshPhysicalMaterial({ color: '#5f737f', metalness: 0.85, roughness: 0.26 });
         for (const a of [-1, 1]) for (const b of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.09, 1.04, 0.09, 3, 0.018), metal, g, x + a * 0.46, 0.575, z + b * 0.46);
         for (const side of [-1, 1]) {
           this.mesh(new RoundedBoxGeometry(0.98, 0.075, 0.085, 3, 0.018), metal, g, x, 1.075, z + side * 0.46);
           this.mesh(new RoundedBoxGeometry(0.085, 0.075, 0.98, 3, 0.018), metal, g, x + side * 0.46, 1.075, z);
         }
-        const mark = this.mesh(new THREE.PlaneGeometry(0.54, 0.54), new THREE.MeshBasicMaterial({ map: labelTexture(['←', '↓', '→', '↑'][piston.direction]), transparent: true, depthWrite: false }), g, x, 1.125, z);
-        mark.rotation.x = -Math.PI / 2;
+        this.pistonArrow(piston, state, g, x, 1.125, z);
         const rod = this.mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.8, 24), metal, g, x, 0.54, z);
         if (piston.direction % 2 === 0) rod.rotation.z = Math.PI / 2; else rod.rotation.x = Math.PI / 2;
         rod.userData.base = new THREE.Vector3(x, 0.54, z); this.pistonRods.push({ rod, target: piston.expanded ? 1 : 0.02, direction: piston.direction });
@@ -243,15 +285,31 @@ export class GameScene {
     return g;
   }
 
+  private pistonArrow(piston: Piston, state: State, parent: THREE.Group, x: number, y: number, z: number): void {
+    const forward = directions[piston.expanded ? piston.direction : opposite(piston.direction)];
+    const group = new THREE.Group(); group.position.set(x, y, z); parent.add(group);
+    group.rotation.y = Math.atan2(forward.x, forward.y); group.userData.pistonArrow = true;
+    const ink = new THREE.MeshBasicMaterial({ color: '#000000' });
+    const points = [new THREE.Vector3(-0.085, 0, -0.09), new THREE.Vector3(0, 0, 0.09), new THREE.Vector3(0.085, 0, -0.09)];
+    if (state.cells.some(c => c.container === piston.baseKey) || state.players.some(p => p.container === piston.baseKey)) {
+      const triangle = new THREE.Shape(points.map(p => new THREE.Vector2(p.x, -p.z)));
+      const geometry = new THREE.ShapeGeometry(triangle); geometry.rotateX(-Math.PI / 2);
+      this.mesh(geometry, ink, group);
+    } else for (let i = 0; i < 2; i++) {
+      const path = new THREE.LineCurve3(points[i], points[i + 1]); this.mesh(new THREE.TubeGeometry(path, 1, 0.014, 8, false), ink, group);
+    }
+  }
+
   private syncBodies(state: State, snap: boolean): void {
     const groups = bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key));
-    const signature = JSON.stringify(groups.map(g => [g.map(c => [c.key, c.edges, c.storesHeat]), g.every(c => c.temperature === g[0].temperature && c.storesHeat === g[0].storesHeat)]));
+    const signature = JSON.stringify([groups.map(g => [g.map(c => [c.key, c.edges, c.storesHeat, c.container]), g.every(c => c.temperature === g[0].temperature && c.storesHeat === g[0].storesHeat)]), state.pistons?.map(p => [p.baseKey, p.expanded])]);
     if (signature !== this.bodySignature) {
       const positions = new Map([...this.pieces].map(([key, g]) => [key, g.position.clone()]));
       this.board.remove(this.parts); this.disposeGroup(this.parts); this.parts = new THREE.Group(); this.board.add(this.parts);
       this.pieces.clear(); this.targets.clear(); this.pistonRods = []; this.bodySignature = signature;
       for (const cells of groups) {
         const group = this.makeBody(cells, state), root = cells[0];
+        group.scale.setScalar(Math.pow(0.72, depth(root, state.cells)));
         const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
         group.position.copy(!snap && positions.has(root.key) ? positions.get(root.key)! : target);
         this.parts.add(group); this.pieces.set(root.key, group);
@@ -283,21 +341,15 @@ export class GameScene {
     }
   }
 
-  load(level: Level, state: State, labels: Map<string, string>, preserveCamera = false): void {
+  load(level: Level, state: State, labels: ReturnType<typeof levelLabels>, preserveCamera = false): void {
     this.cancelMotionWaits();
+    if (preserveCamera) this.stopCameraInertia();
+    this.hoverEvent = undefined; this.onHover?.(null);
     this.scene.remove(this.board); this.disposeBoard();
     this.board = new THREE.Group(); this.scene.add(this.board); this.level = level;
-    this.pieces.clear(); this.targets.clear(); this.rings = []; this.goalLights = []; this.gridMeshes = []; this.noteMarkers = [];
+    this.pieces.clear(); this.targets.clear(); this.gridMeshes = []; this.noteMarkers = [];
     this.parts = new THREE.Group(); this.board.add(this.parts); this.bodySignature = ''; this.labels = labels; this.shownState = state;
     const w = level.width, h = level.height;
-    this.exteriorMaterial = undefined;
-    const exterior = bodies(state.cells).find(cells => cells.some(c => c.fixed) && cells.some(c => c.x === 0 || c.y === 0 || c.x === w - 1 || c.y === h - 1));
-    this.exteriorCellKey = exterior?.[0].key;
-    if (exterior) {
-      this.exteriorMaterial = this.physical(palette.wall, true);
-      const terrain = this.mesh(exteriorPlainGeometry(w, h), this.exteriorMaterial, this.board);
-      terrain.castShadow = false;
-    }
     const lightDirection = new THREE.Vector3(-9, 16, 7).normalize();
     this.sun.position.copy(lightDirection.multiplyScalar(Math.hypot(w, h) + 20));
     this.sun.updateMatrixWorld(true);
@@ -323,11 +375,15 @@ export class GameScene {
     for (const goal of level.goals) {
       if (goal.x < 0 || goal.y < 0 || goal.x >= w || goal.y >= h) continue;
       const g = new THREE.Group(); g.position.set(goal.x - (w - 1) / 2, 0, goal.y - (h - 1) / 2); this.board.add(g);
-      const plate = this.mesh(new RoundedBoxGeometry(0.83, 0.028, 0.83, 3, 0.065), new THREE.MeshStandardMaterial({ color: '#71a993', metalness: 0.55, roughness: 0.28 }), g, 0, 0.063, 0); plate.castShadow = false;
-      const ring = this.mesh(new THREE.TorusGeometry(0.25, 0.018, 10, 40), new THREE.MeshStandardMaterial({ color: '#d5efb5', emissive: '#a4e393', emissiveIntensity: 1.3, roughness: 0.3 }), g, 0, 0.089, 0);
-      ring.rotation.x = -Math.PI / 2; ring.castShadow = false; this.rings.push(ring);
-      const center = this.mesh(new THREE.CircleGeometry(0.055, 20), new THREE.MeshBasicMaterial({ color: '#c0efab' }), g, 0, 0.09, 0); center.rotation.x = -Math.PI / 2;
-      const light = new THREE.PointLight('#b5edab', 0.45, 2, 2); light.position.y = 0.3; g.add(light); this.goalLights.push(light);
+      const hexagon = (radius: number) => Array.from({ length: 6 }, (_, i) => {
+        const angle = i * Math.PI / 3; return new THREE.Vector2(Math.cos(angle) * radius, Math.sin(angle) * radius);
+      });
+      const shape = new THREE.Shape(hexagon(0.355)); shape.closePath();
+      const hole = new THREE.Path(hexagon(0.316).reverse()); hole.closePath(); shape.holes.push(hole);
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.016, bevelEnabled: true, bevelSize: 0.003, bevelThickness: 0.003, bevelSegments: 2, steps: 1 });
+      geometry.rotateX(-Math.PI / 2);
+      const frame = this.mesh(geometry, new THREE.MeshBasicMaterial({ color: '#3478d4' }), g, 0, 0.059, 0);
+      frame.castShadow = false; frame.receiveShadow = false; frame.userData.goal = true;
     }
     const grid = new THREE.GridHelper(Math.max(w, h), Math.max(w, h), '#7e898e', '#aab2b6'); grid.position.y = 0.054; grid.visible = false; this.board.add(grid); this.gridMeshes.push(grid);
     for (const note of level.notes ?? []) {
@@ -345,8 +401,6 @@ export class GameScene {
     this.cancelMotionWaits();
     const { width: w, height: h } = this.level;
     this.shownState = state; this.activity = activity; this.syncBodies(state, snap);
-    const exteriorCell = state.cells.find(c => c.key === this.exteriorCellKey);
-    if (this.exteriorMaterial && exteriorCell) this.paint(this.exteriorMaterial, exteriorCell, true);
     while (this.demons.length > state.players.length) {
       const model = this.demons.pop()!; this.board.remove(model.group); this.disposeGroup(model.group);
     }
@@ -355,15 +409,18 @@ export class GameScene {
     }
     state.players.forEach((player, i) => {
       const model = this.demons[i];
+      model.group.scale.setScalar(Math.pow(0.72, depth(player, state.cells)));
       model.target.set(player.x - (w - 1) / 2, 0.055, player.y - (h - 1) / 2);
       if (snap) { model.group.rotation.set(0, 0, 0); model.group.position.copy(model.target); }
-      model.temperature = player.temperature; model.material.color.set(player.temperature === 0 ? palette.demon : thermalColor(player.temperature));
+      model.temperature = player.temperature; model.awake = player.awake !== false;
+      model.material.color.set(player.temperature === 0 ? palette.demon : thermalColor(player.temperature));
     });
     this.pistonRods.forEach(p => {
       const group = p.rod.parent!, piston = state.pistons?.find(a => group.userData.cellKeys.includes(a.baseKey));
       p.target = piston?.expanded ? 1 : 0.02; if (snap) p.rod.scale.y = p.target;
     });
     this.lastStep = performance.now();
+    if (this.hoverEvent) this.hover(this.hoverEvent);
   }
 
   whenSettled(): Promise<boolean> { return new Promise(resolve => { this.motionWaiters.push(resolve); }); }
@@ -380,6 +437,8 @@ export class GameScene {
       this.controls.target.copy(focus); this.camera.position.copy(focus).add(offset);
     }
   }
+
+  togglePistonNumbers(): boolean { this.pistonNumbers = !this.pistonNumbers; this.parts.traverse(object => { if (object.userData.pistonNumber) object.visible = this.pistonNumbers; }); return this.pistonNumbers; }
 
   setTilt(degrees: number): void { if (this.tilt === degrees) return; this.tilt = degrees; this.resetCamera(); }
   setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { m.visible = visible; }); }
@@ -423,44 +482,51 @@ export class GameScene {
     const hit = this.raycaster.intersectObjects([...this.pieces.values(), ...this.noteMarkers], true)[0];
     if (!hit) return;
     if (!hit.object.userData.note) {
-      const x = Math.round(hit.point.x + (this.level!.width - 1) / 2), y = Math.round(hit.point.z + (this.level!.height - 1) / 2);
-      const cell = this.shownState?.cells.find(c => c.x === x && c.y === y);
+      let group: THREE.Object3D | null = hit.object;
+      while (group && !group.userData.cellKeys) group = group.parent;
+      const keys = group?.userData.cellKeys as number[] | undefined;
+      const root = this.shownState?.cells.find(c => c.key === group?.userData.key);
+      const local = group?.worldToLocal(hit.point.clone());
+      const x = Math.round((local?.x ?? 0) + (root?.x ?? 0)), y = Math.round((local?.z ?? 0) + (root?.y ?? 0));
+      const cell = this.shownState?.cells.find(c => keys?.includes(c.key) && c.x === x && c.y === y) ?? root;
       hit.object.userData.key = cell?.key; hit.object.userData.portal = cell?.portal?.target;
     }
     return hit.object;
   }
-  private hover(event: PointerEvent): void { const hit = this.hit(event); this.onHover?.(hit?.userData.key ?? hit?.parent?.userData.key ?? null); }
+  private hover(event: PointerEvent): void { this.hoverEvent = event; const hit = this.hit(event); this.onHover?.(hit?.userData.key ?? hit?.parent?.userData.key ?? null, this.shownState); }
   private animate(): void {
     const now = performance.now(), dt = Math.min((now - this.previousTime) / 1000, 0.1); this.previousTime = now;
     if (!this.running) return;
     const factor = 1 - Math.exp(-22 * dt);
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
     const moving = this.activity !== 'idle' && now - this.lastStep < 170;
-    const active = this.demons.filter(d => d.temperature !== 1), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
+    const active = this.demons.filter(d => d.temperature !== 1 && d.awake), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
     const text = demonStatus(active.length, this.demons.length, this.activity, moving, this.thinking, this.shownState?.phase === 'cycling');
     const statusKey = `${temperature}:${text}`;
     if (statusKey !== this.status) { this.status = statusKey; this.onStatus?.(temperature, text); }
     for (const model of this.demons) {
-      const hot = model.temperature === 1, inThought = !hot && this.thinking;
+      const hot = model.temperature === 1, inThought = !hot && (this.thinking || !model.awake);
       model.group.position.lerp(model.target, factor);
-      model.group.rotation.y = Math.atan2(this.camera.position.x - model.group.position.x, this.camera.position.z - model.group.position.z);
-      model.eyes.visible = !hot; model.faintEyes.visible = hot;
+      model.eyes.visible = !hot && !inThought; model.faintEyes.visible = hot; model.thinkingEyes.visible = inThought;
       model.group.position.y = 0.055 + (!hot && moving ? Math.sin((now - this.lastStep) / 170 * Math.PI) * 0.06 : 0);
       model.group.rotation.x = THREE.MathUtils.lerp(model.group.rotation.x, this.activity === 'pushing' && moving && !hot ? 0.22 : 0, factor);
       model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, inThought ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
-      model.face.lookAt(this.camera.position);
     }
     this.pistonRods.forEach(p => {
       p.rod.scale.y = THREE.MathUtils.lerp(p.rod.scale.y, p.target, factor);
       p.rod.position.copy(p.rod.userData.base); const d = [[-1, 0], [0, 1], [1, 0], [0, -1]][p.direction];
       p.rod.position.x += d[0] * (0.35 + p.rod.scale.y * 0.4); p.rod.position.z += d[1] * (0.35 + p.rod.scale.y * 0.4);
     });
-    this.rings.forEach(r => { const m = r.material as THREE.MeshStandardMaterial; m.emissiveIntensity = 0.95 + Math.sin(now * 0.002) * 0.22; });
     if (!this.freeView) {
       const focus = this.characterFocus();
       this.camera.position.add(focus.clone().sub(this.controls.target)); this.controls.target.copy(focus);
     }
     this.controls.update();
+    const cameraFacing = this.camera.getWorldQuaternion(new THREE.Quaternion());
+    for (const model of this.demons) {
+      model.group.updateWorldMatrix(true, false);
+      model.face.quaternion.copy(model.group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(cameraFacing));
+    }
     this.composer.render();
     if (this.motionWaiters.length) {
       const distances = [...this.pieces].map(([key, group]) => group.position.distanceTo(this.targets.get(key)!));

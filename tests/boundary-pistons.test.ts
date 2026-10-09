@@ -1,0 +1,254 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { initialState, move, transferHeat, availablePortals, bodies, isSolved } from '../src/engine';
+import { actuateBoundary, moveBoundaryDemons } from '../src/boundary-pistons';
+import { settleTurn } from '../src/pistons';
+import { resetState } from '../src/session';
+import { address, depth } from '../src/topology';
+import { bodyLayerGeometry } from '../src/body-geometry';
+import type { Level, Piston, Temperature } from '../src/types';
+
+const block = (x: number, y: number, temperature: Temperature = 0, container?: number): Level['cells'][number] => ({ x, y, temperature, storesHeat: true, edges: 0x55, fixed: false, ...(container === undefined ? {} : { container }) });
+const piston = (baseKey: number, expanded = false, order = 0): Piston => ({ baseKey, headKey: -10000 - baseKey, direction: 2, expanded, order, model: 'boundary', head: { fixed: false, storesHeat: true, temperature: 0, edges: 0xaa } });
+const room = (cells: Level['cells'], pistons: Piston[], players: Level['players'] = [{ x: 1, y: 1 }]): Level => ({ id: 'piston', label: 'piston', category: 'lab', width: 9, height: 7, cells, pistons, players, goals: [], tail: [0] });
+const housing = (x = 4, temperature: Temperature = 0, fixed = false) => ({ ...block(x, 3, temperature), edges: 0xaa, fixed });
+
+test('nested hot pistons expand within one turn in either actuator order', () => {
+  for (const innerFirst of [false, true]) {
+    const l = room([housing(4, 1, true), { ...housing(4, 1), container: 0 }, block(4, 3, 0, 1)], [piston(0, false, innerFirst ? 2 : 0), piston(1, false, innerFirst ? 0 : 2)]), s = initialState(l);
+    settleTurn(l, s);
+    assert.deepEqual(s.pistons!.map(p => p.expanded), [true, true]); assert.equal(s.phase, 'ready');
+    assert.deepEqual(s.cells.map(c => [c.x, c.container]), [[4, undefined], [5, undefined], [6, undefined]]);
+    assert.ok(s.turnFrames!.some(f => f.pistons[0].expanded !== f.pistons[1].expanded));
+    for (const frame of s.turnFrames!) for (const c of frame.cells) if (c.container !== undefined) {
+      const parent = frame.cells.find(p => p.key === c.container)!;
+      assert.deepEqual([c.x, c.y], [parent.x, parent.y]);
+    }
+  }
+});
+
+test('nested expansion cannot eject a load through a containing side wall', () => {
+  const outer = { ...piston(0), direction: 3 as const }, inner = piston(1);
+  const l = room([housing(), { ...housing(4, 1), container: 0 }, block(4, 3, 0, 1)], [outer, inner]), s = initialState(l), before = structuredClone(s);
+  assert.equal(actuateBoundary(l, s, s.pistons![1]), false); assert.deepEqual(s, before);
+});
+
+test('hot compressed housings eject their inventory through the moving face', () => {
+  const l = room([housing(4, 1, true), block(4, 3, 0, 0)], [piston(0)]), s = initialState(l);
+  settleTurn(l, s);
+  assert.equal(s.pistons![0].expanded, true);
+  assert.equal(s.cells[0].temperature, 0); assert.equal(s.cells[1].x, 5); assert.equal(s.cells[1].container, undefined);
+  assert.deepEqual(s.turnFrames!.map(f => f.phase), ['motion', 'heat', 'motion', 'heat']);
+});
+
+test('obstructed extension remains atomic and does not consume its heat', () => {
+  const l = room([housing(4, 1, true), block(4, 3, 0, 0), { ...block(5, 3), fixed: true }], [piston(0)]), s = initialState(l), before = structuredClone(s);
+  assert.equal(actuateBoundary(l, s, s.pistons![0]), false); assert.deepEqual(s, before);
+});
+
+test('a movable housing retreats when the inventory cannot move', () => {
+  const l = room([housing(4, 1), block(4, 3, 0, 0), { ...block(5, 3), fixed: true }], [piston(0)]), s = initialState(l);
+  assert.equal(actuateBoundary(l, s, s.pistons![0]), true);
+  assert.equal(s.cells[0].x, 3); assert.equal(s.cells[1].x, 4); assert.equal(s.cells[1].container, undefined);
+  assert.equal(s.pistons![0].expanded, true);
+});
+
+test('blocks enter stationary compressed pistons while the demon stays outside', () => {
+  const l = room([housing(4, 0, true), block(5, 3)], [piston(0)], [{ x: 6, y: 3 }]), s = move(l, initialState(l), 0)!;
+  assert.equal(s.cells[0].x, 4); assert.equal(s.cells[1].x, 4); assert.equal(s.cells[1].container, 0);
+  assert.equal(s.players[0].x, 5); assert.equal(s.players[0].container, undefined);
+});
+
+test('a stored opaque block fills a goal while an empty transparent housing does not', () => {
+  const l = room([{ ...housing(), storesHeat: false }, block(4, 3, 0, 0)], [piston(0)]), s = initialState(l);
+  l.goals = [{ x: 4, y: 3 }];
+  assert.equal(isSolved(l, s), true); s.cells.pop(); assert.equal(isSolved(l, s), false);
+});
+
+test('demons enter and leave through the open moving face and cannot push from inside', () => {
+  const l = room([housing()], [piston(0)], [{ x: 5, y: 3 }]), s = move(l, initialState(l), 0)!;
+  assert.equal(s.players[0].container, 0); assert.equal(s.players[0].x, 4);
+  assert.equal(move(l, s, 0), null); assert.equal(move(l, s, 1), null); assert.equal(move(l, s, 3), null);
+  const out = move(l, s, 2)!; assert.equal(out.players[0].x, 5); assert.equal(out.players[0].container, undefined);
+});
+
+test('supported expanded housings compress passively and gain heat', () => {
+  const l = room([housing(), { ...block(3, 3), fixed: true }], [piston(0, true)], [{ x: 5, y: 3 }]), s = initialState(l);
+  assert.deepEqual(moveBoundaryDemons(l, s, 0), { moved: true, pushed: true });
+  assert.equal(s.cells[0].x, 4); assert.equal(s.pistons![0].expanded, false);
+  assert.equal(s.cells[0].temperature, 1); assert.equal(s.players[0].container, 0);
+});
+
+test('transparent passive compression does not create stored heat', () => {
+  const l = room([{ ...housing(), storesHeat: false }, { ...block(3, 3), fixed: true }], [piston(0, true)], [{ x: 5, y: 3 }]), s = move(l, initialState(l), 0)!;
+  assert.equal(s.pistons![0].expanded, false); assert.equal(s.cells[0].temperature, 0); assert.equal(s.players[0].container, 0);
+});
+
+test('passive compression selects the piston closest to support independently of actuator number', () => {
+  for (const orders of [[8, 1], [1, 8]]) {
+    const l = room([{ ...housing(3), edges: 0x55 }, { ...housing(4), edges: 0x54 }, { ...block(5, 3), edges: 0x54 }, { ...block(2, 3), fixed: true }], [piston(0, true, orders[0]), piston(1, true, orders[1])], [{ x: 6, y: 3 }]);
+    const state = initialState(l);
+    assert.equal(moveBoundaryDemons(l, state, 0).moved, true);
+    assert.equal(state.pistons![0].expanded, false);
+    assert.equal(state.cells[0].x, 3);
+  }
+});
+
+test('passive compression can rebound in the same turn before completion is checked', () => {
+  const l = room([housing(), { ...block(3, 3), fixed: true }], [piston(0, true)], [{ x: 5, y: 3 }]), s = move(l, initialState(l), 0)!;
+  assert.equal(s.pistons![0].expanded, true); assert.equal(s.players[0].x, 5); assert.equal(s.players[0].container, undefined);
+  assert.equal(s.moves, 1); assert.equal(s.pushes, 1); assert.equal(s.turnFrames!.length, 4);
+});
+
+test('cold compression pulls a sticky load into the stationary housing', () => {
+  const l = room([housing(4, -1, true), { ...block(5, 3), edges: 0x57 }], [piston(0, true)]), s = initialState(l);
+  assert.equal(actuateBoundary(l, s, s.pistons![0]), true);
+  assert.equal(s.cells[1].x, 4); assert.equal(s.cells[1].container, 0); assert.equal(s.cells[0].temperature, 0);
+});
+
+test('adhesion to the moving face permits extension while adhesion to side walls locks it', () => {
+  const l = room([housing(4, 1, true), { ...block(4, 3, 0, 0), edges: 0x57 }], [piston(0)]), s = initialState(l);
+  assert.equal(actuateBoundary(l, s, s.pistons![0]), true); assert.equal(s.cells[1].container, undefined);
+  const side = initialState(l); side.cells[1].edges = 0x5d;
+  assert.equal(actuateBoundary(l, side, side.pistons![0]), false); assert.equal(side.cells[1].container, 0);
+});
+
+test('pulling an adhesive moving face extends it and cools the housing', () => {
+  const l = room([housing(4, 0, true), { ...block(5, 3), edges: 0x57 }], [piston(0)], [{ x: 5, y: 4 }]), s = initialState(l);
+  const up = move(l, s, 3)!;
+  assert.equal(up.players[0].y, 3); assert.equal(up.cells[1].y, 2);
+  const direct = initialState(room([housing(4, 0, true), { ...block(5, 3), edges: 0x57 }], [piston(0)], [{ x: 4, y: 3, container: 0 }]));
+  assert.equal(moveBoundaryDemons(l, direct, 2).moved, true); assert.equal(direct.pistons![0].expanded, true); assert.equal(direct.cells[0].temperature, -1);
+});
+
+test('inventory is insulated from side walls but can conduct through the moving boundary', () => {
+  const l = room([housing(4, 1), block(4, 3, -1, 0)], [piston(0)]), s = initialState(l);
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [1, -1]);
+  s.cells[0].edges = 0x95; s.pistons![0].direction = 3; s.cells[1].edges = 0x15;
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [1, -1]);
+  s.cells[0].edges = 0x55; transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]);
+});
+
+test('inventories facing each other conduct through both open cavities', () => {
+  const l = room([housing(4), block(4, 3, 1, 0), housing(5), block(5, 3, -1, 2)], [piston(0), { ...piston(2), direction: 0 }]), s = initialState(l);
+  transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0, 0, 0]);
+});
+
+test('a portal in a compressed housing is accessible only through its opening', () => {
+  const target = { ...block(4, 3, 0, 0), portal: { target: 'next', shortcut: false, before: housing(), after: housing() } };
+  const l = room([housing(), target], [piston(0)], [{ x: 5, y: 3 }, { x: 4, y: 2 }]), s = initialState(l);
+  assert.equal(availablePortals(s).length, 1);
+  s.players = [s.players[1]]; assert.equal(availablePortals(s).length, 0);
+});
+
+test('moving housings carry every nested inventory and demon exactly once', () => {
+  const l = room([housing(), { ...housing(4), container: 0 }, block(4, 3, 0, 1)], [piston(0), piston(1)], [{ x: 4, y: 4 }, { x: 4, y: 3, container: 1 }]), s = initialState(l);
+  assert.equal(moveBoundaryDemons(l, s, 3).moved, true);
+  assert.ok(s.cells.every(c => c.y === 2)); assert.equal(s.players[1].y, 2);
+  assert.equal(depth(s.cells[2], s.cells), 2); assert.equal(new Set(s.cells.map(address)).size, 3);
+});
+
+test('a moving compressed housing stores a supported stationary block through its opening', () => {
+  const l = room([housing(), block(5, 3), { ...block(6, 3), fixed: true }], [piston(0)], [{ x: 3, y: 3 }]), s = initialState(l);
+  assert.equal(moveBoundaryDemons(l, s, 2).moved, true);
+  assert.equal(s.cells[0].x, 5); assert.equal(s.cells[1].x, 5); assert.equal(s.cells[1].container, 0);
+});
+
+test('unsupported housings and loads translate together without changing nesting depth', () => {
+  for (const direction of [0, 2] as const) {
+    const l = room([housing(), block(5, 3)], [piston(0)], [{ x: direction === 2 ? 3 : 6, y: 3 }]), s = initialState(l);
+    assert.equal(moveBoundaryDemons(l, s, direction).moved, true);
+    const delta = direction === 2 ? 1 : -1;
+    assert.deepEqual(s.cells.map(c => [c.x, c.container]), [[4 + delta, undefined], [5 + delta, undefined]]);
+    assert.equal(s.pistons![0].expanded, false);
+  }
+});
+
+test('an outside welded load moves the housing when it presses against an inner side wall', () => {
+  const l = room([housing(), { ...block(4, 3, 0, 0), edges: 0x05 }, { ...block(5, 3), edges: 0x54 }], [piston(0)], [{ x: 5, y: 4 }]);
+  l.pistons![0].direction = 2;
+  const s = initialState(l);
+  assert.equal(moveBoundaryDemons(l, s, 3).moved, true);
+  assert.ok(s.cells.every(c => c.y === 2)); assert.equal(s.cells[1].container, 0);
+});
+
+test('thermal actions use increasing piston numbers and include every intermediate frame', () => {
+  const l = room([housing(3, 1, true), housing(6, 1, true)], [piston(0, false, 5), piston(1, false, 2)]), s = initialState(l);
+  settleTurn(l, s);
+  assert.deepEqual(s.turnFrames![2].pistons.map(p => p.expanded), [false, true]);
+  assert.ok(s.pistons!.every(p => p.expanded)); assert.equal(s.turnFrames!.length, 6);
+});
+
+test('retained inner objects restore inside an initial compressed housing at their original depth', () => {
+  const l = room([housing(3), block(3, 3, 0, 0), housing(6), block(6, 3, 2, 2)], [piston(0), piston(2)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells[2].x = 3; current.cells[3].x = 3;
+  const s = resetState(current, baseline, []);
+  assert.equal(s.cells.some(c => c.key === 1), false); assert.equal(s.cells.find(c => c.key === 3)!.container, 0);
+  assert.equal(depth(s.cells.find(c => c.key === 3)!, s.cells), 1);
+});
+
+test('a retained compressed housing contains restored deeper objects while suppressing equal-depth objects', () => {
+  const l = room([housing(3), block(3, 3, 0, 0), housing(6, 2)], [piston(0), piston(2)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells[2].x = 3;
+  const s = resetState(current, baseline, []);
+  assert.equal(s.cells.some(c => c.key === 0), false); assert.equal(s.cells.find(c => c.key === 1)!.container, 2);
+  assert.equal(s.pistons!.some(p => p.baseKey === 0), false);
+});
+
+test('reset can reconstruct multiple nested depths without dangling containers', () => {
+  const l = room([housing(3), { ...housing(3), container: 0 }, block(3, 3, 0, 1), housing(6, 2)], [piston(0), piston(1), piston(3)]), baseline = initialState(l), current = structuredClone(baseline);
+  current.cells[3].x = 3;
+  const s = resetState(current, baseline, []);
+  assert.equal(s.cells.find(c => c.key === 1)!.container, 3); assert.equal(s.cells.find(c => c.key === 2)!.container, 1);
+  assert.equal(depth(s.cells.find(c => c.key === 2)!, s.cells), 2);
+});
+
+test('the imported nine-world catalogue preserves piston inventories and order', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
+  assert.equal(data.levels.filter(l => l.category === 'main').length, 190);
+  for (const l of data.levels) {
+    const s = initialState(l), keys = new Set(s.cells.map(c => c.key));
+    assert.equal(new Set(s.cells.map(address)).size, s.cells.length, l.label);
+    assert.ok(s.cells.every(c => c.container === undefined || keys.has(c.container)), l.label);
+    assert.ok((s.pistons ?? []).every(p => p.model === 'boundary' && keys.has(p.baseKey)), l.label);
+  }
+});
+
+test('original piston rooms preserve occupancy and container positions after their opening moves', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
+  for (const l of data.levels.filter(l => l.category === 'main' && l.pistons?.length)) for (const direction of [0, 1, 2, 3] as const) {
+    const state = move(l, initialState(l), direction); if (!state) continue;
+    assert.equal(new Set(state.cells.map(address)).size, state.cells.length, `${l.label}:${direction}`);
+    for (const object of [...state.cells, ...state.players]) if (object.container !== undefined) {
+      const parent = state.cells.find(c => c.key === object.container);
+      assert.ok(parent, `${l.label}:${direction}`);
+      assert.deepEqual([object.x, object.y], [parent.x, parent.y], `${l.label}:${direction}`);
+      assert.equal(state.pistons!.find(p => p.baseKey === parent.key)!.expanded, false, `${l.label}:${direction}`);
+    }
+  }
+});
+
+test('original piston puzzles settle and reach their goals through movement and thermal actions', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
+  for (const [label, route] of [['4-01', '12220000122223233'], ['4-02', '232210030101222222321012'], ['8-01', '01222222332101222']]) {
+    const l = data.levels.find(l => l.label === label)!; let s = initialState(l);
+    for (const step of route) { const next = move(l, s, Number(step) as 0 | 1 | 2 | 3); assert.ok(next, `${label}:${step}`); s = next; }
+    assert.equal(s.solved, true, label); assert.equal(s.phase, 'ready'); assert.ok(s.players.some(p => p.temperature !== 1));
+    assert.equal(new Set(s.cells.map(address)).size, s.cells.length);
+  }
+});
+
+test('large original world contours generate their side layers without an argument limit', { skip: !fs.existsSync('public/levels.local.json') }, () => {
+  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
+  let largest = 0;
+  for (const l of data.levels.filter(l => l.category === 'world' && ['w8', 'w9'].includes(l.label))) {
+    const s = initialState(l);
+    for (const group of bodies(s.cells)) {
+      const geometry = bodyLayerGeometry(group, 0.96, group.some(c => c.fixed) ? l : undefined);
+      const positions = geometry.getAttribute('position'); largest = Math.max(largest, positions.count);
+      assert.ok(Array.from(positions.array).every(Number.isFinite)); geometry.dispose();
+    }
+  }
+  assert.ok(largest * 3 > 100000);
+});

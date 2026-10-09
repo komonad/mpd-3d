@@ -1,8 +1,10 @@
 import './style.css';
 import { GameScene } from './scene';
 import { laboratory } from './laboratory';
-import { bodies, cloneState, initialState, move } from './engine';
-import { createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, unlockedWorlds, type Session } from './session';
+import { cloneState, initialState, move, syncExteriorTemperature } from './engine';
+import { inspectCell } from './inspection';
+import { levelLabels } from './level-labels';
+import { createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds, type Session } from './session';
 import type { Dataset, Direction, Level, State, Temperature, World } from './types';
 
 const icons: Record<string, string> = {
@@ -42,22 +44,25 @@ app.innerHTML = `
       <div class="sidebar-bottom"><span class="save-dot"></span><span id="save-status">进度自动保存在本机</span><span class="small-star">✦</span></div>
     </aside>
     <section class="play-area" aria-label="游戏区域">
-      <div class="stage-heading"><div><div class="breadcrumbs"><button id="breadcrumb-world">世界 01</button><span>/</span><span id="breadcrumb-level">关卡 01</span></div><h2 id="level-title">初次推动</h2><p id="level-description">将方块推到发光的终点。</p></div><div class="level-badge" id="level-badge">1—01</div></div>
+      <div class="stage-header">
+      <div class="stage-heading"><div><div class="breadcrumbs"><button id="breadcrumb-world">世界 01</button><span>/</span><span id="breadcrumb-level">关卡 01</span></div><h2 id="level-title">初次推动</h2><p id="level-description">将方块推到蓝色六边形终点。</p></div><div class="level-badge" id="level-badge">1—01</div></div>
       <div class="stage-stats"><div><span>MOVES</span><b id="move-count">000</b><small>步数</small></div><div><span>PUSHES</span><b id="push-count">000</b><small>推动</small></div></div>
       <div class="demon-status" id="demon-status" role="status"><i></i><span>小妖 · 常温</span></div>
-      <div id="scene-host" class="scene-host"></div>
+      </div>
+      <div id="scene-host" class="scene-host"><div id="hover-info" class="hover-info" role="tooltip" hidden></div></div>
+      <div class="scene-meta">
       <div class="scene-tag"><span class="status-dot"></span> ORTHOGRAPHIC VIEW <span id="tilt-label">32°</span></div>
-      <div class="legend"><span><i class="legend-neutral"></i>常温</span><span><i class="legend-hot"></i>高温</span><span><i class="legend-cold"></i>低温</span><span><i class="legend-glass"></i>透明</span><span><i class="legend-sticky"></i>粘边</span><span class="legend-goal">◎ 终点</span></div>
-      <div id="hover-info" class="hover-info" hidden></div>
+      <div class="legend"><span><i class="legend-neutral"></i>常温</span><span><i class="legend-hot"></i>高温</span><span><i class="legend-cold"></i>低温</span><span><i class="legend-glass"></i>透明</span><span><i class="legend-sticky"></i>粘边</span><span class="legend-goal"><svg viewBox="0 0 16 16" aria-hidden="true"><polygon points="14,8 11,13.2 5,13.2 2,8 5,2.8 11,2.8" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>终点</span></div>
+      </div>
       <div class="context-action" id="context-action" hidden><button id="enter-button">${icon('enter')}进入 <span id="portal-label"></span><kbd>E</kbd></button></div>
       <div class="dpad" aria-label="触屏方向键"><button data-dir="3" aria-label="向上">${icon('up')}</button><button data-dir="0" aria-label="向左">${icon('left')}</button><i>✦</i><button data-dir="2" aria-label="向右">${icon('right')}</button><button data-dir="1" aria-label="向下">${icon('down')}</button></div>
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <div class="state-message" id="state-message" hidden></div>
       <div class="stage-toolbar"><div class="history-controls"><button id="undo-button" title="撤销 Z / U" aria-label="撤销">${icon('undo')}<span>撤销</span><kbd>Z</kbd></button><button id="redo-button" title="重做 Y" aria-label="重做">${icon('redo')}<span>重做</span><kbd>Y</kbd></button><i></i><button id="reset-button" title="重置 R" aria-label="重置关卡">${icon('reset')}<span>重置</span><kbd>R</kbd></button></div><div class="camera-controls"><button id="free-view-button" class="camera-button" title="切换自由视角 F" aria-label="自由视角" aria-pressed="false">${icon('map')}<span>自由视角</span><kbd>F</kbd></button><button id="camera-button" class="camera-button" title="重置镜头">${icon('camera')}<span>重置镜头</span></button></div></div>
-      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 右键旋转 · 滚轮缩放 · F 自由视角</span><button id="hint-button">提示 ${icon('arrow')}</button></footer>
+      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 右键旋转 · 滚轮缩放 · F 自由视角</span><button id="piston-number-button" aria-pressed="false" hidden>编号 <kbd>Tab</kbd></button><button id="hint-button">提示 ${icon('arrow')}</button></footer>
     </section>
   </main>
-  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>每一次推动，<br>都会改变温度。</h2><p class="dialog-intro">把储存热量的方块推到终点，并让小妖保持常温或低温。</p><div class="rule-row"><span class="rule-icon">↑</span><div><h3>热量会传递</h3><p>相邻且没有隔热边的方块交换热量。高温数量更多，整组变热；低温更多，整组变冷；数量相等，变为常温。</p></div></div><div class="rule-row"><span class="rule-icon demon-icon">••</span><div><h3>小妖也是导体</h3><p>小妖能连接两边的方块，但自身不储存热量。高温时进入假死姿态；一轮活塞结算结束后仍高温，才会停止移动。按 Z 可撤销整轮。</p></div></div><div class="rule-row"><span class="rule-icon">═</span><div><h3>观察每一条边</h3><p>米白色侧面隔热，深浅棋盘格侧面会粘住方块；金属钉表示固定。连接块没有内部缝隙，作为一个刚体移动。</p></div></div><div class="dialog-keyboard"><span><kbd>E</kbd>进入关卡</span><span><kbd>Q</kbd>返回世界</span><span><kbd>H</kbd>提示关卡</span></div><p class="scope-note">世界按进度开放：完成当前世界地图或全部主线，即可进入下一世界。入口与出口不立即结算热量，快捷入口在抵达目标关卡后解锁。按 Z 可撤销移动、重置和关卡切换。</p><button class="primary-button" data-close>开始探索 ${icon('right')}</button></dialog>
+  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>每一次推动，<br>都会改变温度。</h2><p class="dialog-intro">把储存热量的方块推到终点，并让小妖保持常温或低温。</p><div class="rule-row"><span class="rule-icon">↑</span><div><h3>热量会传递</h3><p>相邻且没有隔热边的方块交换热量。高温数量更多，整组变热；低温更多，整组变冷；数量相等，变为常温。</p></div></div><div class="rule-row"><span class="rule-icon demon-icon">••</span><div><h3>小妖也是导体</h3><p>小妖能连接两边的方块，但自身不储存热量。高温时进入假死姿态；一轮活塞结算结束后仍高温，才会停止移动。按 Z 可撤销整轮。</p></div></div><div class="rule-row"><span class="rule-icon">═</span><div><h3>观察每一条边</h3><p>白色侧面隔热，深浅棋盘格侧面会粘住方块；金属钉表示固定。连接块没有内部缝隙，作为一个刚体移动。</p></div></div><div class="dialog-keyboard"><span><kbd>E</kbd>进入关卡</span><span><kbd>Q</kbd>返回世界</span><span><kbd>H</kbd>提示关卡</span></div><p class="scope-note">可直接选择世界 1–9。入口与出口不立即结算热量，快捷入口在抵达目标关卡后解锁。按 Z 可撤销移动、重置和关卡切换。</p><button class="primary-button" data-close>开始探索 ${icon('right')}</button></dialog>
   <dialog id="settings-dialog"><div class="dialog-heading"><span class="eyebrow">MAKE IT YOURS</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>光与视角</h2><p class="dialog-intro">找到看得清，也看得舒服的角度。</p><label class="setting-row" for="tilt-input"><span><b>镜头倾斜</b><small>从正俯视方向向下倾斜</small></span><output id="tilt-output">32°</output></label><input id="tilt-input" type="range" min="0" max="50" value="32" step="1"/><label class="setting-row" for="light-input"><span><b>曝光</b><small>材质与灯光的明亮程度</small></span><output id="light-output">1.05</output></label><input id="light-input" type="range" min="0.65" max="1.65" value="1.05" step="0.01"/><label class="setting-row toggle-row"><span><b>精细光影</b><small>高分辨率抗锯齿与环境遮蔽</small></span><input type="checkbox" id="quality-input" checked/></label><label class="setting-row toggle-row"><span><b>辅助网格</b><small>清晰显示格子边界</small></span><input type="checkbox" id="grid-input"/></label><label class="setting-row toggle-row"><span><b>自由视角</b><small>右键旋转、中键平移，关闭后跟随小妖</small></span><input type="checkbox" id="free-view-input"/></label><button class="primary-button" id="settings-reset">恢复默认画面 ${icon('reset')}</button><p class="scope-note">Three.js · PBR 材质 · 正交镜头<br>关卡由本机游戏安装目录导入。</p></dialog>
   <dialog id="hint-dialog"><div class="dialog-heading"><span class="eyebrow">A LITTLE GUIDANCE</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>慢一点，看清热量。</h2><p class="dialog-intro" id="hint-text"></p><div class="hint-art"><span class="hint-cube hot">↑</span><span>＋</span><span class="hint-cube cold">↓</span><span>→</span><span class="hint-cube neutral">·</span></div><p>在提示关卡中实验，按 Q 返回。提示场景的完成状态不计入探索进度。</p><button class="primary-button" id="start-hint-button">进入原版提示关卡 ${icon('right')}</button></dialog>
 `;
@@ -126,12 +131,14 @@ function renderLevels(): void {
   $('#world-button').classList.toggle('active', level.category === 'world');
 }
 function renderHud(): void {
+  $('.play-area').setAttribute('aria-busy', String(resolving));
   $('#breadcrumb-world').textContent = `世界 ${String(currentWorld().index).padStart(2, '0')}`;
   $('#move-count').textContent = String(state.moves).padStart(3, '0'); $('#push-count').textContent = String(state.pushes).padStart(3, '0');
   $('#level-title').textContent = levelName(level); $('#level-badge').textContent = level.label.replace('-', '—');
   $('#breadcrumb-level').textContent = level.category === 'world' ? '世界地图' : level.category === 'hint' ? `${level.label} 提示` : level.category === 'lab' ? '机制实验室' : `关卡 ${level.label.split('-')[1]}`;
-  $('#level-description').textContent = level.description ?? (level.category === 'world' ? '靠近入口按 E 进入；完成的关卡入口可以推动。' : level.category === 'hint' ? '在这里自由实验。按 Q 返回关卡。' : '将方块推到发光的终点，保持小妖冷静。');
+  $('#level-description').textContent = level.description ?? (level.category === 'world' ? '靠近入口按 E 进入；完成的关卡入口可以推动。' : level.category === 'hint' ? '在这里自由实验。按 Q 返回关卡。' : '将方块推到蓝色六边形终点，保持小妖冷静。');
   $('#undo-button').toggleAttribute('disabled', !undoHistory.length); $('#redo-button').toggleAttribute('disabled', !redoHistory.length);
+  $('#piston-number-button').hidden = !state.pistons?.some(p => p.model === 'boundary');
   const portals = portalCandidates(data, session);
   $('#context-action').hidden = !portals.length || state.frozen || state.solved || state.phase === 'cycling';
   $('#portal-label').textContent = portals.length ? labels.get(portals[0].portal!.target) ?? '未知关卡' : '';
@@ -145,15 +152,16 @@ function cancelPlayback(): void { playback++; resolving = false; scene.cancelMot
 function load(id: string, outside: Temperature = 0, existing?: State, preserveCamera = false): void {
   const found = levelsById.get(id); if (!found) { notify('这个入口通向当前版本范围之外的场景。'); return; }
   cancelPlayback(); level = found; state = existing ? cloneState(existing) : initialState(level, solved, outside);
+  syncExteriorTemperature(level, state);
   if (level.worldId) selectedWorld = level.worldId;
   if (level.category === 'extra') category = 'extra'; else if (level.category === 'main' || level.category === 'world') category = 'main'; else if (level.category === 'lab') category = 'lab';
-  scene.load(level, state, labels, preserveCamera); display(true); $('#hover-info').hidden = true;
+  scene.load(level, state, levelLabels(data.levels), preserveCamera); display(true); $('#hover-info').hidden = true;
   document.body.classList.remove('sidebar-open');
 }
 function selectLevel(id: string): void {
   const found = levelsById.get(id); if (!found) return;
-  if (found.worldId && !unlockedWorlds(data, solved).some(w => w.id === found.worldId)) { notify('完成当前世界地图或全部主线后开放。'); return; }
-  remember(); session = createSession(found, [...solved], session.visited); load(id, 0, session.current);
+  if (found.worldId && !unlockedWorlds(data, solved).some(w => w.id === found.worldId)) { notify('这个世界的关卡数据尚未导入。'); return; }
+  remember(); session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
 }
 async function step(direction: Direction): Promise<void> {
   if (resolving || performance.now() - inputTime < 95) return; inputTime = performance.now();
@@ -165,7 +173,7 @@ async function step(direction: Direction): Promise<void> {
   resolving = state.solved;
   if (next.pistons?.length && next.turnFrames && next.turnFrames.length > 2) {
     resolving = true; renderHud(); renderLevels(); save();
-    const frames = next.turnFrames.slice(0, 16);
+    const frames = next.turnFrames;
     for (const frame of frames) {
       if (token !== playback) return;
       scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving');
@@ -180,12 +188,12 @@ async function step(direction: Direction): Promise<void> {
     resolving = false;
     renderHud();
   }
-  if (state.solved && canExit() && !session.hints.length) { const next = exitLevel(data, session); if (next) { session = next; load(next.current.levelId, next.current.outside, next.current); notify('关卡完成，已返回上层场景。'); } }
+  if (state.solved && canExit()) { const next = exitLevel(data, session); if (next) { remember(); session = next; load(next.current.levelId, next.current.outside, next.current); notify('关卡完成，已返回上层场景。'); } }
 }
 function restore(s: Snapshot): void { const sameLevel = level.id === s.current.levelId; session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current, sameLevel); }
 function undo(): void { const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
 function redo(): void { const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
-function reset(): void { remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
+function reset(): void { if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
 function enter(targetId?: string): void {
   if (resolving) return;
   const next = enterPortal(data, session, targetId);
@@ -199,7 +207,7 @@ function exit(): void {
   if (resolving && state.solved) return;
   if (resolving) cancelPlayback();
   const next = exitLevel(data, session);
-  if (!next) { if (level.category !== 'world') selectLevel(selectedWorld); return; }
+  if (!next) return;
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
 function nextLevel(): void {
@@ -242,6 +250,7 @@ function bind(): void {
   $('#help-button').onclick = () => $<HTMLDialogElement>('#help-dialog').showModal(); $('#settings-button').onclick = () => $<HTMLDialogElement>('#settings-dialog').showModal();
   $('#sound-button').onclick = () => { preferences.sound = !preferences.sound; applyPreferences(); };
   $('#hint-button').onclick = requestHint; $('#start-hint-button').onclick = startHint; $('#enter-button').onclick = () => enter();
+  $('#piston-number-button').onclick = () => $('#piston-number-button').setAttribute('aria-pressed', String(scene.togglePistonNumbers()));
   $('#menu-button').onclick = () => document.body.classList.toggle('sidebar-open');
   $('#state-message').addEventListener('click', e => {
     const id = (e.target as HTMLElement).closest('button')?.id;
@@ -260,6 +269,7 @@ function bind(): void {
     if (document.querySelector('dialog[open]') || e.ctrlKey || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select')) return;
     const key = e.key.toLowerCase(); const keys: Record<string, Direction> = { arrowleft: 0, a: 0, arrowdown: 1, s: 1, arrowright: 2, d: 2, arrowup: 3, w: 3 };
     if (key in keys) { e.preventDefault(); step(keys[key]); }
+    else if (key === 'tab' && state.pistons?.some(p => p.model === 'boundary') && (e.target === document.body || (e.target as HTMLElement).matches('canvas'))) { e.preventDefault(); $('#piston-number-button').click(); }
     else if (key === 'z' || key === 'u') { e.preventDefault(); undo(); }
     else if (key === 'y') redo(); else if (key === 'r') reset(); else if (key === 'f') toggleFreeView(); else if (key === 'e' || key === 'enter' || key === ' ') { e.preventDefault(); if (!resolving) { if (state.solved) canExit() ? exit() : nextLevel(); else enter(); } }
     else if (key === 'q' || key === 'backspace') { e.preventDefault(); exit(); } else if (key === 'h') requestHint();
@@ -270,19 +280,33 @@ function bind(): void {
     $('#demon-status span').textContent = `小妖 · ${temperature === 1 ? '高温' : temperature === -1 ? '低温' : temperature === 2 ? '第4温度' : '常温'} · ${status}${status.startsWith('假死') ? ' · Z 撤销 / R 重置' : ''}`;
   };
   scene.onNoteClick = text => { $('#hint-text').textContent = text; $('#start-hint-button').toggleAttribute('disabled', !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal(); };
-  scene.onHover = key => {
-    const info = $('#hover-info'), cell = state.cells.find(c => c.key === key); if (!cell) { info.hidden = true; return; }
-    info.hidden = false;
-    const fixed = bodies(state.cells).some(b => b.some(c => c.fixed) && b.some(c => c.key === cell.key));
-    const piston = state.pistons?.find(p => p.baseKey === cell.key || p.headKey === cell.key);
-    info.textContent = `${cell.portal ? '关卡 ' + (labels.get(cell.portal.target) ?? '入口') + ' · ' : ''}${piston ? '活塞 · ' : ''}${cell.temperature === 1 ? '高温' : cell.temperature === -1 ? '低温' : cell.temperature === 2 ? '第4温度' : '常温'} · ${fixed ? '固定' : '可推动'}${cell.storesHeat ? '' : ' · 透明导体 · 不储热'}${[0, 1, 2, 3].some(d => ((cell.edges >> (d * 2)) & 3) === 3) ? ' · 粘边' : ''}`;
+  scene.onHover = (key, shown) => {
+    const info = $('#hover-info'), model = key === null || !shown ? undefined : inspectCell(shown, key, labels);
+    if (!model) { info.hidden = true; return; }
+    info.hidden = false; info.replaceChildren();
+    const heading = document.createElement('strong'); heading.textContent = model.title; info.append(heading);
+    if (model.piston) {
+      const badge = document.createElement('span'); badge.className = 'piston-state'; badge.dataset.expanded = String(model.piston.expanded);
+      badge.textContent = `${model.piston.state} · ${model.piston.direction}`; info.append(badge);
+    }
+    const details = document.createElement('p'); details.textContent = model.details; info.append(details);
+    if (model.piston) {
+      const caption = document.createElement('div'); caption.className = 'inventory-caption'; caption.textContent = '内部物品'; info.append(caption);
+      if (!model.contents.length) { const empty = document.createElement('p'); empty.textContent = model.piston.expanded ? '无内部物品' : '空腔'; info.append(empty); }
+      for (const item of model.contents) {
+        const row = document.createElement('div'); row.className = 'inventory-item'; row.style.marginLeft = `${Math.min(item.depth, 5) * 12}px`;
+        const glyph = document.createElement('i'); glyph.className = `inventory-glyph ${item.kind}`; glyph.dataset.temperature = String(item.temperature);
+        const text = document.createElement('div'), name = document.createElement('b'), properties = document.createElement('small');
+        name.textContent = item.title; properties.textContent = item.details; text.append(name, properties); row.append(glyph, text); info.append(row);
+      }
+    }
   };
 }
 
 async function start(): Promise<void> {
   try {
     const response = await fetch('/levels.local.json'); if (!response.ok) throw new Error('关卡数据尚未导入。请在项目目录运行 npm run import:levels。');
-    data = await response.json(); data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.label]));
+    data = await response.json(); data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
     try { const saved = JSON.parse(localStorage.getItem(preferencesKey) ?? 'null'); if (saved) preferences = { ...preferences, ...saved }; } catch { /* Defaults remain valid when a browser save is unreadable. */ }
     applyPreferences();
@@ -292,7 +316,7 @@ async function start(): Promise<void> {
     if (saved) { session = saved; solved = new Set(saved.solved); load(saved.current.levelId, saved.current.outside, saved.current); }
     else {
       const first = data.levels.find(l => l.category === 'main')!;
-      session = createSession(first);
+      session = selectSession(data, first);
       try {
         const legacy = JSON.parse(localStorage.getItem('maxwell3d-save-v1') ?? 'null');
         if (legacy && levelsById.has(legacy.state?.levelId) && Array.isArray(legacy.solved)) {
