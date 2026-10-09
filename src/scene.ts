@@ -16,7 +16,7 @@ import { cameraHalfHeight, demonStatus, followFocus, motionSettled } from './vie
 import { exteriorPlainGeometry } from './terrain-geometry';
 import type { Cell, Level, State, Temperature } from './types';
 
-const palette = { wall: '#69747e', neutral: '#89949e', hot: '#d94e28', cold: '#298fcd', demon: '#8998a3', floor: '#b8b8ad', ink: '#263e39' };
+const palette = { wall: '#aab1b6', neutral: '#bec5ca', hot: '#d94e28', cold: '#298fcd', demon: '#b9c0c5', floor: '#eef0ec' };
 const thermalColor = (t: Temperature) => t === 1 ? palette.hot : t === -1 ? palette.cold : t === 2 ? '#55a779' : palette.neutral;
 
 interface DemonVisual {
@@ -27,7 +27,7 @@ interface DemonVisual {
 function labelTexture(text: string, dark = false): THREE.CanvasTexture {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
   const ctx = canvas.getContext('2d')!; ctx.font = '600 45px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillStyle = dark ? '#f0ebdc' : '#294842'; ctx.fillText(text, 64, 66);
+  ctx.fillStyle = dark ? '#f0ebdc' : '#4b453c'; ctx.fillText(text, 64, 66);
   return new THREE.CanvasTexture(canvas);
 }
 
@@ -38,7 +38,7 @@ export class GameScene {
   readonly controls: OrbitControls;
   private readonly composer: EffectComposer;
   private readonly ao: SurfaceSSAOPass;
-  private readonly sun = new THREE.DirectionalLight('#fff6e8', 2.5);
+  private readonly sun = new THREE.DirectionalLight('#fffaf3', 2.5);
   private board = new THREE.Group();
   private pieces = new Map<number, THREE.Group>();
   private demons: DemonVisual[] = [];
@@ -82,24 +82,24 @@ export class GameScene {
     this.adhesiveMaterial.map!.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
-    this.renderer.setClearColor('#162523', 0);
+    this.renderer.setClearColor('#f7f3ea', 0);
     this.renderer.domElement.setAttribute('aria-label', '三维关卡棋盘，使用方向键或 WASD 移动');
     this.host.append(this.renderer.domElement);
     const pmrem = new THREE.PMREMGenerator(this.renderer), environment = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(environment, 0.04).texture; environment.dispose(); pmrem.dispose();
     this.scene.environmentIntensity = 0.65;
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true; this.controls.dampingFactor = 0.08;
-    this.controls.enablePan = this.controls.enableRotate = false; this.controls.minZoom = 0.3; this.controls.maxZoom = 5;
+    this.controls.enableDamping = false; this.controls.dampingFactor = 0.08;
+    this.controls.enablePan = false; this.controls.enableRotate = true; this.controls.minZoom = 0.3; this.controls.maxZoom = 5;
     this.controls.minPolarAngle = 0.02; this.controls.maxPolarAngle = Math.PI * 0.44;
     this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.controls.touches.ONE = THREE.TOUCH.ROTATE;
 
-    this.scene.add(new THREE.HemisphereLight('#ecf1de', '#597d78', 1.1));
+    this.scene.add(new THREE.HemisphereLight('#fffdf7', '#8a9299', 1.1));
     const sun = this.sun; sun.position.set(-9, 16, 7); sun.castShadow = true;
     sun.shadow.mapSize.set(4096, 4096);
     sun.shadow.normalBias = 0.035; sun.shadow.bias = -0.00015; sun.shadow.radius = 3; this.scene.add(sun);
-    const fill = new THREE.DirectionalLight('#a4d4e3', 0.8); fill.position.set(7, 10, -10); this.scene.add(fill);
+    const fill = new THREE.DirectionalLight('#dce8f1', 0.8); fill.position.set(7, 10, -10); this.scene.add(fill);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.23 }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.58; ground.receiveShadow = true; this.scene.add(ground);
     const renderTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
@@ -203,7 +203,7 @@ export class GameScene {
     if (layer.getAttribute('position').count) {
       layer.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(layer.getAttribute('position').count * 3), 3));
       g.userData.surfaceLayer = layer;
-      const insulation = this.physical('#f2edda'); insulation.roughness = 0.9;
+      const insulation = this.physical('#fcfcfa'); insulation.roughness = 0.9; insulation.metalness = insulation.clearcoat = 0;
       this.mesh(layer, [insulation, this.adhesiveMaterial], g);
     } else layer.dispose();
     for (const cell of cells) {
@@ -306,16 +306,16 @@ export class GameScene {
       new THREE.Vector3(-w / 2 - 1.2, -0.6, -h / 2 - 1.2),
       new THREE.Vector3(w / 2 + 1.2, 1.8, h / 2 + 1.2),
     ));
-    const platform = this.mesh(new RoundedBoxGeometry(w + 0.55, 0.45, h + 0.55, 4, 0.16), this.physical('#e4ded0'), this.board, 0, -0.205, 0);
+    const platform = this.mesh(new RoundedBoxGeometry(w + 0.55, 0.45, h + 0.55, 4, 0.16), this.physical('#f5f3ec'), this.board, 0, -0.205, 0);
     platform.receiveShadow = true;
-    this.mesh(new RoundedBoxGeometry(w + 0.65, 0.12, h + 0.65, 3, 0.12), this.physical('#253e37'), this.board, 0, -0.425, 0);
-    const floorMaterial = this.physical(palette.floor); floorMaterial.roughness = 0.82; floorMaterial.clearcoat = 0.06;
+    this.mesh(new RoundedBoxGeometry(w + 0.65, 0.12, h + 0.65, 3, 0.12), this.physical('#928a7e'), this.board, 0, -0.425, 0);
+    const floorMaterial = this.physical(palette.floor); floorMaterial.roughness = 0.82; floorMaterial.clearcoat = 0.06; floorMaterial.metalness = 0;
     const tiles = new THREE.InstancedMesh(new RoundedBoxGeometry(0.985, 0.05, 0.985, 2, 0.025), floorMaterial, w * h);
     const matrix = new THREE.Matrix4();
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { matrix.makeTranslation(x - (w - 1) / 2, 0.025, y - (h - 1) / 2); tiles.setMatrixAt(y * w + x, matrix); }
     tiles.receiveShadow = true; this.board.add(tiles);
     const floorGrid = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: '#8a948e', depthWrite: false }), w + h + 2);
+      new THREE.MeshBasicMaterial({ color: '#9ca2a2', depthWrite: false }), w + h + 2);
     for (let x = 0; x <= w; x++) { matrix.makeScale(0.016, 1, h); matrix.setPosition(x - w / 2, 0.053, 0); floorGrid.setMatrixAt(x, matrix); }
     for (let y = 0; y <= h; y++) { matrix.makeScale(w, 1, 0.016); matrix.setPosition(0, 0.053, y - h / 2); floorGrid.setMatrixAt(w + 1 + y, matrix); }
     floorGrid.userData.transmissiveOnly = true;
@@ -329,7 +329,7 @@ export class GameScene {
       const center = this.mesh(new THREE.CircleGeometry(0.055, 20), new THREE.MeshBasicMaterial({ color: '#c0efab' }), g, 0, 0.09, 0); center.rotation.x = -Math.PI / 2;
       const light = new THREE.PointLight('#b5edab', 0.45, 2, 2); light.position.y = 0.3; g.add(light); this.goalLights.push(light);
     }
-    const grid = new THREE.GridHelper(Math.max(w, h), Math.max(w, h), '#748b7c', '#acb4a5'); grid.position.y = 0.054; grid.visible = false; this.board.add(grid); this.gridMeshes.push(grid);
+    const grid = new THREE.GridHelper(Math.max(w, h), Math.max(w, h), '#7e898e', '#aab2b6'); grid.position.y = 0.054; grid.visible = false; this.board.add(grid); this.gridMeshes.push(grid);
     for (const note of level.notes ?? []) {
       const marker = this.mesh(new THREE.PlaneGeometry(0.55, 0.55), new THREE.MeshBasicMaterial({ map: labelTexture('i'), transparent: true, depthWrite: false }), this.board, note.x - (w - 1) / 2, 0.082, note.y - (h - 1) / 2);
       marker.rotation.x = -Math.PI / 2; marker.castShadow = false; marker.userData.note = note.text; this.noteMarkers.push(marker);
@@ -372,7 +372,8 @@ export class GameScene {
   setFreeView(enabled: boolean): void {
     if (this.freeView === enabled) return;
     this.stopCameraInertia(); this.freeView = enabled;
-    this.controls.enablePan = this.controls.enableRotate = enabled;
+    this.controls.enableDamping = enabled;
+    this.controls.enablePan = enabled;
     if (!enabled) {
       const focus = this.characterFocus();
       const offset = this.camera.position.clone().sub(this.controls.target);

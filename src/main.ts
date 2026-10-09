@@ -54,7 +54,7 @@ app.innerHTML = `
       <div class="toast" id="toast" role="status" aria-live="polite"></div>
       <div class="state-message" id="state-message" hidden></div>
       <div class="stage-toolbar"><div class="history-controls"><button id="undo-button" title="撤销 Z / U" aria-label="撤销">${icon('undo')}<span>撤销</span><kbd>Z</kbd></button><button id="redo-button" title="重做 Y" aria-label="重做">${icon('redo')}<span>重做</span><kbd>Y</kbd></button><i></i><button id="reset-button" title="重置 R" aria-label="重置关卡">${icon('reset')}<span>重置</span><kbd>R</kbd></button></div><div class="camera-controls"><button id="free-view-button" class="camera-button" title="切换自由视角 F" aria-label="自由视角" aria-pressed="false">${icon('map')}<span>自由视角</span><kbd>F</kbd></button><button id="camera-button" class="camera-button" title="重置镜头">${icon('camera')}<span>重置镜头</span></button></div></div>
-      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 滚轮缩放 · F 自由视角</span><button id="hint-button">提示 ${icon('arrow')}</button></footer>
+      <footer class="play-footer"><span class="keyboard-guide"><kbd>↑</kbd><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd> / <b>W A S D</b> 移动</span><span class="camera-guide" id="camera-guide">角色跟随 · 右键旋转 · 滚轮缩放 · F 自由视角</span><button id="hint-button">提示 ${icon('arrow')}</button></footer>
     </section>
   </main>
   <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">HOW TO PLAY</span><button class="icon-button" data-close aria-label="关闭">${icon('close')}</button></div><h2>每一次推动，<br>都会改变温度。</h2><p class="dialog-intro">把储存热量的方块推到终点，并让小妖保持常温或低温。</p><div class="rule-row"><span class="rule-icon">↑</span><div><h3>热量会传递</h3><p>相邻且没有隔热边的方块交换热量。高温数量更多，整组变热；低温更多，整组变冷；数量相等，变为常温。</p></div></div><div class="rule-row"><span class="rule-icon demon-icon">••</span><div><h3>小妖也是导体</h3><p>小妖能连接两边的方块，但自身不储存热量。高温时进入假死姿态；一轮活塞结算结束后仍高温，才会停止移动。按 Z 可撤销整轮。</p></div></div><div class="rule-row"><span class="rule-icon">═</span><div><h3>观察每一条边</h3><p>米白色侧面隔热，深浅棋盘格侧面会粘住方块；金属钉表示固定。连接块没有内部缝隙，作为一个刚体移动。</p></div></div><div class="dialog-keyboard"><span><kbd>E</kbd>进入关卡</span><span><kbd>Q</kbd>返回世界</span><span><kbd>H</kbd>提示关卡</span></div><p class="scope-note">世界按进度开放：完成当前世界地图或全部主线，即可进入下一世界。入口与出口不立即结算热量，快捷入口在抵达目标关卡后解锁。按 Z 可撤销移动、重置和关卡切换。</p><button class="primary-button" data-close>开始探索 ${icon('right')}</button></dialog>
@@ -222,7 +222,9 @@ function applyPreferences(): void {
   $<HTMLInputElement>('#quality-input').checked = preferences.quality; $<HTMLInputElement>('#grid-input').checked = preferences.grid;
   $<HTMLInputElement>('#free-view-input').checked = preferences.freeView;
   $('#free-view-button').setAttribute('aria-pressed', String(preferences.freeView));
-  $('#camera-guide').textContent = preferences.freeView ? '自由视角 · 右键旋转 · 中键平移 · 滚轮缩放' : '角色跟随 · 滚轮缩放 · F 自由视角';
+  $('#free-view-button span').textContent = `自由视角 · ${preferences.freeView ? '开' : '关'}`;
+  $('#free-view-button').title = `自由视角已${preferences.freeView ? '开启' : '关闭'} · F 切换`;
+  $('#camera-guide').textContent = preferences.freeView ? '自由视角 · 右键旋转 · 中键平移 · 滚轮缩放' : '角色跟随 · 右键旋转 · 滚轮缩放 · F 自由视角';
   $('#sound-button').innerHTML = icon(preferences.sound ? 'sound' : 'mute'); $('#sound-button').setAttribute('aria-label', preferences.sound ? '关闭音效' : '开启音效');
   try { localStorage.setItem(preferencesKey, JSON.stringify(preferences)); } catch { /* Preferences can remain in memory. */ }
 }

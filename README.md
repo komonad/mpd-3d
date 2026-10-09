@@ -31,7 +31,8 @@ The importer reads the installation without changing it. The generated `public/l
 | Return from level or hint | Q / Backspace |
 | Enter hint scene | H |
 | Toggle free camera | F / free-view button |
-| Rotate / pan in free view | Right drag / middle drag |
+| Rotate camera | Right drag |
+| Pan in free view | Middle drag |
 | Zoom camera | Wheel |
 
 Progress, discovered shortcuts, cached room states, and entry baselines are saved in browser local storage. The world selector opens the next supported world after its predecessor's map or all main puzzles are completed. The level browser provides direct access to puzzles within unlocked worlds. World-map entrances transform when their corresponding levels are completed. Undo includes resets, scene transitions, and completion progress within the current browser session.
