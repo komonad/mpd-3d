@@ -22,7 +22,7 @@ export function glassRimGeometry(cells: Cell[], height: number): THREE.BufferGeo
         path.add(new THREE.QuadraticBezierCurve3(point(c.entry), point(c.center), point(c.exit)));
         path.add(new THREE.LineCurve3(point(c.exit), point(corners[(index + 1) % corners.length].entry)));
       });
-      parts.push(new THREE.TubeGeometry(path, Math.ceil(path.getLength() * 24), 0.012, 8, true));
+      parts.push(new THREE.TubeGeometry(path, Math.ceil(path.getLength() * 24), y === hi ? 0.019 : 0.01, 8, true));
     }
     for (const c of corners) {
       const p = c.entry.clone().add(c.exit).multiplyScalar(0.25).addScaledVector(c.center, 0.5);

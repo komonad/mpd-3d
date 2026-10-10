@@ -9,7 +9,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bodies } from './engine';
 import { blockHeight, bodyLayerGeometry, bodySurfaceGeometries, exteriorHalfExtent, fixedAnchorPoints } from './body-geometry';
 import { fitShadowCamera, renderPixelRatio } from './render-quality';
-import { adhesiveTexture } from './surface-materials';
+import { adhesiveTexture, surfaceTextures } from './surface-materials';
 import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
 import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth, spawnPoints } from './view-state';
@@ -27,15 +27,19 @@ interface DemonVisual {
 }
 
 function labelTexture(text: string, weight = 700, ink = '#000000', locked = false): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
   const lines = text.split(':'), ctx = canvas.getContext('2d')!;
-  ctx.font = `${weight} 45px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  const size = Math.min(45, 104 / lines.length, 45 * 112 / Math.max(1, ...lines.map(line => ctx.measureText(line).width)));
+  ctx.font = `${weight} 112px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const size = Math.min(112, (locked ? 168 : 208) / lines.length, 112 * 222 / Math.max(1, ...lines.map(line => ctx.measureText(line).width)));
   ctx.font = `${weight} ${size}px sans-serif`; ctx.fillStyle = ink;
-  lines.forEach((line, i) => ctx.fillText(line, 64, 66 + (i - (lines.length - 1) / 2) * size * 1.1));
+  ctx.strokeStyle = '#ffffffed'; ctx.lineWidth = 5; ctx.lineJoin = 'round';
+  lines.forEach((line, i) => {
+    const y = 130 + (i - (lines.length - 1) / 2) * size * 1.06;
+    ctx.strokeText(line, 128, y); ctx.fillText(line, 128, y);
+  });
   if (locked) {
-    ctx.strokeStyle = ink; ctx.lineWidth = 3; ctx.setLineDash([7, 5]); ctx.strokeRect(7, 9, 114, 110);
-    ctx.setLineDash([]); ctx.fillRect(58, 102, 12, 10); ctx.beginPath(); ctx.arc(64, 102, 4, Math.PI, 0); ctx.stroke();
+    ctx.strokeStyle = ink; ctx.lineWidth = 4; ctx.setLineDash([14, 10]); ctx.strokeRect(14, 18, 228, 220);
+    ctx.setLineDash([]); ctx.fillRect(116, 208, 24, 20); ctx.beginPath(); ctx.arc(128, 208, 8, Math.PI, 0); ctx.stroke();
   }
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture;
 }
@@ -52,6 +56,8 @@ export class GameScene {
   private pieces = new Map<number, THREE.Group>();
   private demons: DemonVisual[] = [];
   private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  private readonly textures = surfaceTextures();
+  private readonly sharedTextures = new Set<THREE.Texture>([this.adhesiveMaterial.map!, ...Object.values(this.textures)]);
   private parts = new THREE.Group();
   private labels: ReturnType<typeof levelLabels> = new Map();
   private visited = new Set<string>();
@@ -83,7 +89,7 @@ export class GameScene {
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(renderPixelRatio(devicePixelRatio, true));
-    this.adhesiveMaterial.map!.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    this.sharedTextures.forEach(texture => { texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy(); });
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor('#ffffff', 0);
@@ -182,10 +188,10 @@ export class GameScene {
     const materials = (uniform ? [root] : cells).map(cell => {
       const material = this.physical(thermalColor(cell.temperature), fixed); this.paint(material, cell, fixed);
       if (!cell.storesHeat) {
-        material.map = material.normalMap = material.roughnessMap = null;
+        material.map = this.textures.glass; material.roughnessMap = this.textures.glassRoughness;
         material.transmission = 0.96; material.thickness = 0.45; material.ior = 1.33;
         material.depthWrite = false;
-        material.roughness = 0.035; material.metalness = 0; material.clearcoat = 0.6;
+        material.roughness = 1; material.metalness = 0; material.clearcoat = 0.6;
         material.attenuationDistance = 12; material.attenuationColor.set('#ffffff'); material.envMapIntensity = 1.1;
       }
       return material;
@@ -206,7 +212,7 @@ export class GameScene {
     g.userData.key = root.key; g.userData.cellKeys = cells.map(c => c.key); g.userData.materials = materials; g.userData.uniform = uniform;
     const glass = solidCells.filter(c => !c.storesHeat);
     if (glass.length) {
-      const rimMaterial = new THREE.MeshPhysicalMaterial({ color: '#5e707c', roughness: 0.24, metalness: 0.2, transparent: true, opacity: 0.72, depthWrite: false });
+      const rimMaterial = new THREE.MeshPhysicalMaterial({ color: '#58666f', roughness: 0.42, metalness: 0.12, transparent: true, opacity: 0.82, depthWrite: false });
       const rimGeometry = glassRimGeometry(solidCells, height); rimGeometry.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
       const rim = new THREE.Mesh(rimGeometry, rimMaterial);
       rim.userData.transmissiveOnly = true; g.add(rim);
@@ -227,7 +233,7 @@ export class GameScene {
       const x = cell.x - root.x, z = cell.y - root.y;
       if (cell.portal || (cell.heatCapacity ?? 1) > 1) {
         const label = cell.portal ? portalPresentation(cell, this.labels, this.visited) : { text: String(cell.heatCapacity), weight: 700, ink: '#000000', locked: false };
-        const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(label.text, label.weight, label.ink, label.locked), transparent: true, depthWrite: false, toneMapped: false }), g, x, height + 0.09, z);
+        const mark = this.mesh(new THREE.PlaneGeometry(0.82, 0.72), new THREE.MeshBasicMaterial({ map: labelTexture(label.text, label.weight, label.ink, label.locked), transparent: true, depthWrite: false, toneMapped: false }), g, x, height + 0.09, z);
         mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.labelKey = cell.key; mark.userData.portal = cell.portal?.target;
         if (cell.portal) { mark.userData.portalCell = cell; mark.userData.locked = label.locked; }
       }
@@ -245,7 +251,7 @@ export class GameScene {
             }
             this.mesh(new RoundedBoxGeometry(0.88, 0.045, 0.88, 3, 0.015), new THREE.MeshStandardMaterial({ color: '#f5f5f5', roughness: 0.9 }), g, x, 0.09, z);
           }
-          const frame = new THREE.MeshStandardMaterial({ color: '#8d979e', roughness: 0.8 });
+          const frame = new THREE.MeshStandardMaterial({ color: '#78858d', roughness: 0.8 });
           for (const a of [-1, 1]) for (const b of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.055, 0.055, 0.96, 3, 0.01), frame, g, x + a * 0.46, b > 0 ? 1.06 : 0.065, z);
           for (const side of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.96, 0.055, 0.055, 3, 0.01), frame, g, x, 1.06, z + side * 0.46);
           const back = directions[opposite(piston.direction)], front = directions[piston.direction], tangent = { x: -front.y, y: front.x };
@@ -259,7 +265,7 @@ export class GameScene {
           }
           this.mesh(new RoundedBoxGeometry(horizontal ? 0.48 : 0.035, 0.035, horizontal ? 0.035 : 0.48, 2, 0.008), metal, g, x + front.x * (plateAt + 0.065), 0.78, z + front.y * (plateAt + 0.065));
           this.pistonArrow(piston, state, g, x + back.x * 0.28, 1.105, z + back.y * 0.28);
-          const number = this.mesh(new THREE.PlaneGeometry(0.28, 0.28), new THREE.MeshBasicMaterial({ map: labelTexture(String(piston.order)), transparent: true, depthWrite: false }), g, x - back.x * 0.28, 1.115, z - back.y * 0.28);
+          const number = this.mesh(new THREE.PlaneGeometry(0.36, 0.36), new THREE.MeshBasicMaterial({ map: labelTexture(String(piston.order)), transparent: true, depthWrite: false, toneMapped: false }), g, x - back.x * 0.28, 1.115, z - back.y * 0.28);
           number.rotation.x = -Math.PI / 2; number.visible = this.pistonNumbers; number.userData.pistonNumber = true;
           continue;
         }
@@ -385,7 +391,7 @@ export class GameScene {
       const rim = group.userData.glassRim as { material: THREE.MeshPhysicalMaterial; cellKey: number } | undefined;
       if (rim) {
         const cell = cells.find(c => c.key === rim.cellKey)!;
-        rim.material.color.set(cell.temperature === 0 ? '#5e707c' : thermalColor(cell.temperature));
+        rim.material.color.set(cell.temperature === 0 ? '#58666f' : thermalColor(cell.temperature));
       }
     }
   }
@@ -411,7 +417,8 @@ export class GameScene {
     const platform = this.mesh(new RoundedBoxGeometry(w + 0.55, 0.45, h + 0.55, 4, 0.16), this.physical('#f5f3ec'), this.board, 0, -0.205, 0);
     platform.receiveShadow = true;
     this.mesh(new RoundedBoxGeometry(w + 0.65, 0.12, h + 0.65, 3, 0.12), this.physical('#928a7e'), this.board, 0, -0.425, 0);
-    const floorMaterial = this.physical(palette.floor); floorMaterial.roughness = 0.82; floorMaterial.clearcoat = 0.06; floorMaterial.metalness = 0;
+    const floorMaterial = this.physical(palette.floor); floorMaterial.roughness = 0.9; floorMaterial.clearcoat = 0.06; floorMaterial.metalness = 0;
+    floorMaterial.map = this.textures.floor; floorMaterial.roughnessMap = this.textures.floorRoughness;
     const tiles = new THREE.InstancedMesh(new RoundedBoxGeometry(0.985, 0.05, 0.985, 2, 0.025), floorMaterial, w * h);
     const matrix = new THREE.Matrix4();
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { matrix.makeTranslation(x - (w - 1) / 2, 0.025, y - (h - 1) / 2); tiles.setMatrixAt(y * w + x, matrix); }
@@ -625,7 +632,9 @@ export class GameScene {
     });
     geometries.forEach(g => g.dispose()); materials.forEach(m => {
       if (m === this.adhesiveMaterial) return;
-      const map = (m as THREE.MeshStandardMaterial).map; if (map !== this.adhesiveMaterial.map) map?.dispose(); m.dispose();
+      const material = m as THREE.MeshStandardMaterial;
+      for (const texture of [material.map, material.normalMap, material.roughnessMap]) if (texture && !this.sharedTextures.has(texture)) texture.dispose();
+      m.dispose();
     });
   }
 }
