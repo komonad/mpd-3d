@@ -7,6 +7,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bodies } from './engine';
+import { motionBodies } from './body-motion';
 import { blockHeight, bodyLayerGeometry, bodySurfaceGeometries, exteriorHalfExtent, fixedAnchorPoints } from './body-geometry';
 import { fitShadowCamera, renderPixelRatio } from './render-quality';
 import { adhesiveTexture, surfaceTextures } from './surface-materials';
@@ -69,6 +70,7 @@ export class GameScene {
   private previousTime = performance.now();
   private targets = new Map<number, THREE.Vector3>();
   private lastStep = 0;
+  private mergingBodies = false;
   private gridMeshes: THREE.Object3D[] = [];
   private raycaster = new THREE.Raycaster();
   private noteMarkers: THREE.Object3D[] = [];
@@ -331,7 +333,20 @@ export class GameScene {
   }
 
   private syncBodies(state: State, snap: boolean): void {
-    const groups = bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key));
+    const rendered = new Map<number, { x: number; y: number }>();
+    const anchors = new Map<number, THREE.Vector3>();
+    for (const group of this.pieces.values()) {
+      const cells = group.userData.renderCells as Cell[], root = cells[0];
+      for (const cell of cells) {
+        rendered.set(cell.key, {
+          x: group.position.x + (this.level!.width - 1) / 2 + cell.x - root.x,
+          y: group.position.z + (this.level!.height - 1) / 2 + cell.y - root.y,
+        });
+        anchors.set(cell.key, group.position.clone().add(new THREE.Vector3((cell.x - root.x) * group.scale.x, 0, (cell.y - root.y) * group.scale.z)));
+      }
+    }
+    const plan = snap ? { groups: bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key)), merging: false } : motionBodies(state.cells, rendered);
+    const groups = plan.groups; this.mergingBodies = plan.merging;
     const live = new Set(groups.map(cells => cells[0].key));
     const remove = (key: number, group: THREE.Group) => {
       this.pistonRods = this.pistonRods.filter(p => p.rod.parent !== group);
@@ -348,7 +363,7 @@ export class GameScene {
       const uniform = cells.every(c => c.temperature === root.temperature && c.storesHeat === root.storesHeat);
       const existing = this.pieces.get(root.key);
       if (!existing || existing.userData.signature !== signature || existing.userData.uniform && !uniform) {
-        const position = existing?.position.clone();
+        const position = anchors.get(root.key);
         if (existing) remove(root.key, existing);
         const group = this.makeBody(cells, state);
         group.userData.signature = signature;
@@ -360,6 +375,7 @@ export class GameScene {
     }
     for (const cells of groups) {
       const root = cells[0], group = this.pieces.get(root.key)!;
+      group.userData.renderCells = cells;
       const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
       this.targets.set(root.key, target); if (snap) group.position.copy(target);
       const thermalSignature = cells.map(c => c.temperature).join(',');
@@ -585,6 +601,7 @@ export class GameScene {
     const finished = now - this.lastStep >= 110;
     const factor = finished ? 1 : 1 - Math.exp(-36 * dt);
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
+    if (finished && this.mergingBodies && this.shownState) this.syncBodies(this.shownState, true);
     const moving = this.activity !== 'idle' && now - this.lastStep < 110;
     const active = this.demons.filter(d => d.temperature !== 1 && d.awake), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
     const thinking = this.demons.some(d => !d.awake && d.temperature !== 1);

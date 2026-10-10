@@ -85,6 +85,7 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
   }
   const at = new Map(cells.map(c => [key(c), c]));
   const edgeAt = (c: Cell, direction: number) => c.edges >> ((3 - direction) * 2) & 3;
+  const interfaces = new Map<string, { cell: Cell; neighbor: Cell; direction: number; coatings: { kind: number; owner: Cell; side: number }[] }>();
   for (const cell of cells) for (const direction of [1, 2]) {
     const neighbor = at.get(`${cell.x + (direction === 1 ? 1 : 0)},${cell.y + (direction === 2 ? 1 : 0)}`);
     if (!neighbor || cell.container !== neighbor.container) continue;
@@ -92,18 +93,32 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
     const a = edgeAt(cell, direction), b = edgeAt(neighbor, opposite);
     if (a !== 3 && b !== 3 || cell.storesHeat && neighbor.storesHeat && a !== 2 && b !== 2) continue;
     const owner = a === 3 ? cell : neighbor;
-    const side = owner === cell ? 1 : -1, tangent = direction === 1 ? { x: 0, y: 1 } : { x: -1, y: 0 };
-    const normal = { x: tangent.y * side, y: -tangent.x * side };
+    const coatings = [{ kind: 3, owner, side: owner === cell ? 1 : -1 }];
+    if (a === 2) coatings.push({ kind: 2, owner: cell, side: 1 });
+    if (b === 2) coatings.push({ kind: 2, owner: neighbor, side: -1 });
+    interfaces.set(`${cell.x},${cell.y},${direction}`, { cell, neighbor, direction, coatings });
+  }
+  for (const { cell, direction, coatings } of interfaces.values()) {
+    const tangent = direction === 1 ? { x: 0, y: 1 } : { x: -1, y: 0 };
     const center = { x: cell.x + (direction === 1 ? 1 : 0.5), y: cell.y + (direction === 2 ? 1 : 0.5) };
-    const point = (along: number, across: number) => ({ x: center.x + tangent.x * along + normal.x * across, y: center.y + tangent.y * along + normal.y * across });
-    const o = point(-0.481, 0.002), i = point(-0.481, -0.098), n = point(0.481, -0.098), e = point(0.481, 0.002);
-    const top = hi + 0.001, width = 0.1 / height * 3, u = 0, v = 3;
-    const face = (points: number[][], coordinates: number[][]) => quad(side > 0 ? points : [...points].reverse(), side > 0 ? coordinates : [...coordinates].reverse(), 3, owner.key);
-    face([vertex(o, top), vertex(i, top), vertex(n, top), vertex(e, top)], [[u, 0], [u, width], [v, width], [v, 0]]);
-    face([vertex(o, lo), vertex(o, top), vertex(e, top), vertex(e, lo)], [[u, 3], [u, 0], [v, 0], [v, 3]]);
-    face([vertex(n, lo), vertex(n, top), vertex(i, top), vertex(i, lo)], [[v, 3 + width], [v, width], [u, width], [u, 3 + width]]);
-    face([vertex(i, lo), vertex(i, top), vertex(o, top), vertex(o, lo)], [[width, 3], [width, 0], [0, 0], [0, 3]]);
-    face([vertex(e, lo), vertex(e, top), vertex(n, top), vertex(n, lo)], [[0, 3], [0, 0], [width, 0], [width, 3]]);
+    for (const { kind, owner, side } of coatings) {
+      const continues = (sign: number) => interfaces.get(`${cell.x + tangent.x * sign},${cell.y + tangent.y * sign},${direction}`)?.coatings.some(c => c.kind === kind && c.side === side) ?? false;
+      const start = continues(-1) ? -0.5 : -0.49, end = continues(1) ? 0.5 : 0.49;
+      const normal = { x: tangent.y * side, y: -tangent.x * side };
+      const point = (along: number, across: number) => ({ x: center.x + tangent.x * along + normal.x * across, y: center.y + tangent.y * along + normal.y * across });
+      const o = point(start, 0), i = point(start, -0.1), n = point(end, -0.1), e = point(end, 0);
+      const top = hi + 0.001, width = 0.1 / height * 3, u = 0, v = 3;
+      const face = (points: number[][], coordinates: number[][]) => quad(side > 0 ? points : [...points].reverse(), side > 0 ? coordinates : [...coordinates].reverse(), kind, owner.key);
+      face([vertex(o, top), vertex(i, top), vertex(n, top), vertex(e, top)], [[u, 0], [u, width], [v, width], [v, 0]]);
+      if (kind === 2 || !coatings.some(c => c.kind === 2)) {
+        const points = [vertex(o, lo), vertex(o, top), vertex(e, top), vertex(e, lo)], coordinates = [[u, 3], [u, 0], [v, 0], [v, 3]];
+        face(points, coordinates);
+        if (kind === 2) face([...points].reverse(), [...coordinates].reverse());
+      }
+      face([vertex(n, lo), vertex(n, top), vertex(i, top), vertex(i, lo)], [[v, 3 + width], [v, width], [u, width], [u, 3 + width]]);
+      if (!continues(-1)) face([vertex(i, lo), vertex(i, top), vertex(o, top), vertex(o, lo)], [[width, 3], [width, 0], [0, 0], [0, 3]]);
+      if (!continues(1)) face([vertex(e, lo), vertex(e, top), vertex(n, top), vertex(n, lo)], [[0, 3], [0, 0], [width, 0], [width, 3]]);
+    }
   }
   const vertices: number[] = [], uv: number[] = [], owners: number[] = [];
   surfaces.forEach((s, index) => {

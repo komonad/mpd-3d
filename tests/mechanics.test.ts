@@ -115,6 +115,42 @@ test('joined adhesive faces retain a single checker layer with the sticky cell t
     geometry.dispose(); material.dispose();
   }
 });
+test('joined insulation remains opaque on both sides beside an adhesive layer', () => {
+  for (const cells of [
+    [cell(0, 0, 0, 0, 0x75, false), cell(1, 1, 0, 0, 0x56, false)],
+    [cell(0, 0, 0, 0, 0x56, false), cell(1, -1, 0, 0, 0x75)],
+    [cell(0, 0, 0, 0, 0x5d), cell(1, 0, 1, 0, 0x95, false)],
+  ]) {
+    const geometry = bodyLayerGeometry(cells, 0.96), insulation = new MeshBasicMaterial(), adhesive = new MeshBasicMaterial();
+    const mesh = new Mesh(geometry, [insulation, adhesive]); mesh.updateMatrixWorld();
+    const insulated = cells.find(c => c.edges === 0x56 || c.edges === 0x95)!, sticky = cells.find(c => c !== insulated)!;
+    const toward = new Vector3(sticky.x - insulated.x, 0, sticky.y - insulated.y);
+    for (const source of [sticky, insulated]) {
+      const direction = source === insulated ? toward : toward.clone().negate();
+      const hits = new Raycaster(new Vector3(source.x - cells[0].x, 0.5, source.y - cells[0].y), direction).intersectObject(mesh);
+      assert.ok(hits.some(hit => hit.face!.materialIndex === 0 && hit.distance <= 0.501));
+    }
+    const midpoint = new Vector3((sticky.x + insulated.x) / 2 - cells[0].x, 3, (sticky.y + insulated.y) / 2 - cells[0].y);
+    for (const [side, material] of [[-1, 0], [1, 1]]) {
+      const hits = new Raycaster(midpoint.clone().addScaledVector(toward, side * 0.045), new Vector3(0, -1, 0)).intersectObject(mesh);
+      assert.equal(hits.length, 1); assert.equal(hits[0].face!.materialIndex, material);
+    }
+    geometry.dispose(); insulation.dispose(); adhesive.dispose();
+  }
+});
+
+test('joined checker and insulation bands cover cell junctions without end-cap seams', () => {
+  const cells = Array.from({ length: 3 }, (_, y) => [cell(y * 2, 0, y, 0, 0x75, false), cell(y * 2 + 1, 1, y, 0, 0x56)]).flat();
+  const geometry = bodyLayerGeometry(cells, 0.96), material = new MeshBasicMaterial();
+  const mesh = new Mesh(geometry, [material, material]); mesh.updateMatrixWorld();
+  for (const z of [0.485, 0.495, 0.505, 0.515, 1.485, 1.495, 1.505, 1.515]) for (const x of [0.455, 0.545]) {
+    const hits = new Raycaster(new Vector3(x, 3, z), new Vector3(0, -1, 0)).intersectObject(mesh);
+    assert.equal(hits.length, 1, `Coating coverage at ${x},${z}`);
+    assert.equal(hits[0].face!.materialIndex, x < 0.5 ? 1 : 0);
+  }
+  geometry.dispose(); material.dispose();
+});
+
 test('ordinary welds, homogeneous sticky solids, and separate bodies have no adhesive junction layer', () => {
   for (const cells of [
     [cell(0, 0, 0, 0, 0x45), cell(1, 1, 0, 0, 0x54)],
