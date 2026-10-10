@@ -100,6 +100,8 @@ export function transferHeat(level: Level, state: State): void {
       });
       for (const key of links.get(c.key) ?? []) if (!seen.has(key)) { seen.add(key); component.push(byKey.get(key)!); }
     }
+    // Demon-only components retain their individual temperatures until they contact a material or the exterior.
+    if (!outside && component.every(c => c.key < 0)) continue;
     // Demons and transparent cells conduct heat without contributing to its balance.
     const sum = component.reduce((s, c) => s + (c.storesHeat && !infinite.has(c.key) && c.temperature !== 2 ? c.temperature * (c.heatCapacity ?? 1) : 0), 0);
     const retentive = component.some(c => c.storesHeat && !infinite.has(c.key) && c.temperature === 2);

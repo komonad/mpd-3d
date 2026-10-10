@@ -408,7 +408,7 @@ test('original piston rooms preserve occupancy and container positions after the
 
 test('original piston puzzles settle and reach their goals through movement and thermal actions', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
-  for (const [label, route] of [['4-01', '12220000122223233'], ['4-02', '232210030101222222321012'], ['8-01', '01222233210122222']]) {
+  for (const [label, route] of [['4-01', '12220000122223233'], ['4-02', '232210030101222222321012'], ['8-01', '012222332101222033210122']]) {
     const l = data.levels.find(l => l.label === label)!; let s = initialState(l);
     for (const step of route) { const next = move(l, s, Number(step) as 0 | 1 | 2 | 3); assert.ok(next, `${label}:${step}`); s = next; }
     assert.equal(s.solved, true, label); assert.equal(s.phase, 'ready'); assert.ok(s.players.some(p => p.temperature !== 1));

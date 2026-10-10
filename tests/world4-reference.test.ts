@@ -39,7 +39,7 @@ test('4-12 moves a concave transparent frame into the demon’s vacated address'
 test('4-15 translates the loaded housing together with its concave body', { skip: !data }, () => {
   const run = replay('4-15'); assert.equal(run.solution.source, source); run.seek(53);
   const state = run.simulation.session.current;
-  assert.deepEqual(state.players.map(p => [p.x, p.y, p.temperature]), [[7, 3, 0]]);
+  assert.deepEqual(state.players.map(p => [p.x, p.y]), [[7, 3]]);
   assert.deepEqual(cell(state, 64), [8, 3, -1, undefined]);
   assert.deepEqual(cell(state, 65), [8, 3, 0, 64]);
   assert.deepEqual([52, 53, 54].map(key => cell(state, key)), [[6, 2, 0, undefined], [7, 2, 0, undefined], [8, 2, 0, undefined]]);

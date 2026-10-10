@@ -8,6 +8,8 @@ The Steam executable uses MSVC C++ objects and OpenSiv3D 0.6.15. The inspected e
 
 Native temperature values are neutral `0`, hot `1`, cold `2`, retentive `3`. The simulator uses `0`, `1`, `-1`, `2`, respectively.
 
+Thermal components originate at material objects and the exterior. Demon-only components keep their individual temperatures until they contact a material component; adjacency between demons alone does not give them heat capacity. In the [world 9 numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/), the two retentive demons in 9-3 remain retentive after moving away from their blocks, allowing a subsequent reset to retain their positions.
+
 The player has temperature at offset `0xe0` and an independent `awake` flag at `0xe8`. `0x140049e30` clones hint-entering demons with `awake = false`. Physical movement and portal entry exclude sleeping demons. `0x14006f140` marks a sleeping demon to wake when a temperature change makes it hot; `Move::Thermal::execute` at `0x140089ea0` applies that flag. Drawing at `0x14007f890` uses crosses for hot eyes, horizontal lines for sleeping eyes, and vertical lines for awake eyes.
 
 ## Reset and transitions

@@ -22,6 +22,23 @@ test('the demon conducts without storing heat', () => {
   s.players[0].temperature = 1; transferHeat(l, s);
   assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]); assert.equal(s.players[0].temperature, 0);
 });
+
+test('isolated demons retain temperature without exchanging stored heat with each other', () => {
+  const l = fixture([], [{ x: 2, y: 2 }, { x: 3, y: 2 }]);
+  for (const temperature of [-1, 0, 1, 2] as const) {
+    const state = initialState(l); state.players[0].temperature = temperature;
+    transferHeat(l, state);
+    assert.deepEqual(state.players.map(p => p.temperature), [temperature, 0]);
+  }
+});
+
+test('a retentive demon loses retention when its component contacts neutral material', () => {
+  const l = fixture([block(4, 2)], [{ x: 2, y: 2 }, { x: 3, y: 2 }]), state = initialState(l);
+  state.players[0].temperature = 2;
+  transferHeat(l, state);
+  assert.deepEqual(state.players.map(p => p.temperature), [0, 0]);
+  assert.equal(state.cells[0].temperature, 0);
+});
 test('either insulated face prevents heat conduction', () => {
   const l = fixture([block(2, 2, 1, 0x65), block(3, 2, -1)]), s = initialState(l);
   transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [1, -1]);
