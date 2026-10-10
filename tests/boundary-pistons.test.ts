@@ -67,10 +67,86 @@ test('a stored opaque block fills a goal while an empty transparent housing does
 });
 
 test('demons enter and leave through the open moving face and cannot push from inside', () => {
-  const l = room([housing()], [piston(0)], [{ x: 5, y: 3 }]), s = move(l, initialState(l), 0)!;
+  const l = room([housing(4, 0, true)], [piston(0)], [{ x: 5, y: 3 }]), s = move(l, initialState(l), 0)!;
   assert.equal(s.players[0].container, 0); assert.equal(s.players[0].x, 4);
   assert.equal(move(l, s, 0), null); assert.equal(move(l, s, 1), null); assert.equal(move(l, s, 3), null);
   const out = move(l, s, 2)!; assert.equal(out.players[0].x, 5); assert.equal(out.players[0].container, undefined);
+});
+
+test('opening-side movement pushes a free housing before entering or compression in every orientation', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const glass of [false, true]) for (const expanded of [false, true]) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
+    const l = room([{ ...housing(), storesHeat: !glass }], [{ ...piston(0, expanded), direction }], [{ x: 4 + d.x, y: 3 + d.y }]);
+    const before = initialState(l), s = move(l, before, ((direction + 2) % 4) as 0 | 1 | 2 | 3)!;
+    assert.ok(s); assert.deepEqual([s.cells[0].x, s.cells[0].y], [4 - d.x, 3 - d.y]);
+    assert.deepEqual([s.players[0].x, s.players[0].y, s.players[0].container], [4, 3, undefined]);
+    assert.equal(s.pushes, 1); assert.equal(s.pistons![0].expanded, expanded); assert.equal(s.cells[0].temperature, 0);
+    assert.deepEqual(before, initialState(l));
+  }
+});
+
+test('an advancing expanded housing compresses its attached moving face around a supported load', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const face of [0, 3]) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction], reverse = (direction + 2) % 4;
+    const load = { ...block(4 + d.x, 3 + d.y), edges: 0x55 & ~(3 << (reverse * 2)) | face << (reverse * 2) };
+    const l = room([housing(), load, { ...block(4 + 2 * d.x, 3 + 2 * d.y), fixed: true }], [{ ...piston(0, true), direction }], [{ x: 4 - d.x, y: 3 - d.y }]);
+    const s = initialState(l);
+    assert.deepEqual(moveBoundaryDemons(l, s, direction), { moved: true, pushed: true });
+    assert.deepEqual([s.cells[0].x, s.cells[0].y, s.cells[1].container], [load.x, load.y, 0]);
+    assert.equal(s.pistons![0].expanded, false); assert.equal(s.cells[0].temperature, 1);
+  }
+});
+
+test('a blocked housing admits the demon without translating the block behind it', () => {
+  const l = room([housing(), block(3, 3), { ...block(2, 3), fixed: true }], [piston(0)], [{ x: 5, y: 3 }]), s = move(l, initialState(l), 0)!;
+  assert.ok(s); assert.deepEqual(s.cells.map(c => c.x), [4, 3, 2]);
+  assert.deepEqual([s.players[0].x, s.players[0].container], [4, 0]); assert.equal(s.pushes, 0);
+});
+
+test('opening-side pushes carry nested housings and their contained demon before entry', () => {
+  const l = room([housing(), { ...housing(), container: 0 }], [piston(0), piston(1)], [{ x: 5, y: 3 }, { x: 4, y: 3, container: 1 }]), s = initialState(l);
+  assert.deepEqual(moveBoundaryDemons(l, s, 0), { moved: true, pushed: true });
+  assert.deepEqual(s.cells.map(c => [c.x, c.container]), [[3, undefined], [3, 0]]);
+  assert.deepEqual(s.players.map(p => [p.x, p.container]), [[4, undefined], [3, 1]]);
+});
+
+test('an aligned nested empty cavity is accessible only after its containing housing is blocked', () => {
+  for (const aligned of [false, true]) {
+    const l = room([housing(4, 0, true), { ...housing(), container: 0 }], [piston(0), { ...piston(1), direction: aligned ? 2 : 3 }], [{ x: 5, y: 3 }]);
+    const s = initialState(l), before = structuredClone(s), result = moveBoundaryDemons(l, s, 0);
+    assert.equal(result.moved, aligned); assert.equal(result.pushed, false);
+    if (aligned) { assert.deepEqual(s.cells, before.cells); assert.deepEqual([s.players[0].x, s.players[0].container], [4, 1]); }
+    else assert.deepEqual(s, before);
+  }
+});
+
+test('pushing a housing into another stationary cavity takes priority over demon entry', () => {
+  const l = room([housing(5), housing(), { ...block(3, 3), fixed: true }], [piston(0), piston(1)], [{ x: 6, y: 3 }]), s = initialState(l);
+  assert.deepEqual(moveBoundaryDemons(l, s, 0), { moved: true, pushed: true });
+  assert.deepEqual(s.cells.map(c => [c.x, c.container]), [[4, 1], [4, undefined], [3, undefined]]);
+  assert.deepEqual([s.players[0].x, s.players[0].container], [5, undefined]);
+});
+
+test('an occupied housing can advance through passive compression when cavity entry is blocked', () => {
+  const l = room([housing(), block(4, 3, 0, 0), housing(3), { ...block(2, 3), fixed: true }], [piston(0), piston(2, true)], [{ x: 5, y: 3 }]);
+  const s = initialState(l);
+  assert.deepEqual(moveBoundaryDemons(l, s, 0), { moved: true, pushed: true });
+  assert.deepEqual(s.cells.map(c => [c.x, c.container]), [[3, 2], [3, 0], [3, undefined], [2, undefined]]);
+  assert.equal(s.pistons![1].expanded, false); assert.equal(s.cells[2].temperature, 1);
+  assert.deepEqual([s.players[0].x, s.players[0].container], [4, undefined]);
+});
+
+test('failed welded-body pushes discard partial destinations before cavity entry', () => {
+  const l = room([{ ...housing(), edges: 0x2a }, { ...block(4, 2), edges: 0x51 }, { ...block(3, 2), fixed: true }], [piston(0)], [{ x: 5, y: 3 }]);
+  const s = initialState(l), cells = structuredClone(s.cells);
+  assert.deepEqual(moveBoundaryDemons(l, s, 0), { moved: true, pushed: false });
+  assert.deepEqual(s.cells, cells); assert.deepEqual([s.players[0].x, s.players[0].container], [4, 0]);
+});
+
+test('an obstructed occupied cavity rejects entry without changing either inventory or housing', () => {
+  const l = room([housing(), block(4, 3, 0, 0), { ...block(3, 3), fixed: true }], [piston(0)], [{ x: 5, y: 3 }]);
+  const s = initialState(l), before = structuredClone(s);
+  assert.deepEqual(moveBoundaryDemons(l, s, 0), { moved: false, pushed: false }); assert.deepEqual(s, before);
 });
 
 test('supported expanded housings compress passively and gain heat', () => {
@@ -155,12 +231,33 @@ test('a moving compressed housing stores a supported stationary block through it
   assert.equal(s.cells[0].x, 5); assert.equal(s.cells[1].x, 5); assert.equal(s.cells[1].container, 0);
 });
 
-test('a compressed empty housing cannot contain fixed walls or blocks welded to fixed support', () => {
-  for (const direction of [0, 1, 2, 3] as const) for (const welded of [false, true]) {
+test('advancing housings store supported loads and compress in every opening direction', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const expanded of [false, true]) for (const glass of [false, true]) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
+    const l = room([{ ...housing(), storesHeat: !glass }, block(4 + d.x, 3 + d.y), { ...block(4 + 2 * d.x, 3 + 2 * d.y), fixed: true }], [{ ...piston(0, expanded), direction }], [{ x: 4 - d.x, y: 3 - d.y }]);
+    const s = initialState(l);
+    assert.deepEqual(moveBoundaryDemons(l, s, direction), { moved: true, pushed: true });
+    assert.deepEqual(s.cells.map(c => [c.x, c.y, c.container]), [[4 + d.x, 3 + d.y, undefined], [4 + d.x, 3 + d.y, 0], [4 + 2 * d.x, 3 + 2 * d.y, undefined]]);
+    assert.equal(s.pistons![0].expanded, false); assert.equal(s.cells[0].temperature, expanded && !glass ? 1 : 0);
+    assert.deepEqual([s.players[0].x, s.players[0].y, s.players[0].container], [4, 3, undefined]);
+  }
+});
+
+test('upward passive storage retains its load when the following heat balance cools the housing', () => {
+  const l = room([{ ...housing(), edges: 0x55 }, block(4, 2, -1), { ...block(4, 1), fixed: true }], [{ ...piston(0, true), direction: 3, head: { ...block(0, 0) } }], [{ x: 4, y: 4 }]);
+  const s = move(l, initialState(l), 3)!; assert.ok(s);
+  assert.deepEqual([s.cells[0].y, s.cells[1].y, s.cells[1].container], [2, 2, 0]);
+  assert.equal(s.pistons![0].expanded, false); assert.equal(s.cells[0].temperature, 0); assert.equal(s.cells[1].temperature, 0);
+  assert.deepEqual(s.turnFrames!.map(f => f.phase), ['motion', 'heat']);
+  assert.deepEqual([s.turnFrames![0].cells[0].temperature, s.turnFrames![0].pistons[0].expanded], [1, false]);
+});
+
+test('empty housings cannot contain fixed walls or blocks welded to fixed support', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const welded of [false, true]) for (const expanded of [false, true]) {
     const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
     const wall = { ...block(4 + d.x, 3 + d.y), fixed: !welded, edges: 0x55 & ~(3 << (direction * 2)) };
     const anchor = { ...block(4 + 2 * d.x, 3 + 2 * d.y), fixed: true, edges: 0x55 & ~(3 << (((direction + 2) % 4) * 2)) };
-    const l = room([housing(), wall, anchor], [{ ...piston(0), direction }], [{ x: 4 - d.x, y: 3 - d.y }]);
+    const l = room([housing(), wall, anchor], [{ ...piston(0, expanded), direction }], [{ x: 4 - d.x, y: 3 - d.y }]);
     const state = initialState(l), before = structuredClone(state);
     assert.deepEqual(moveBoundaryDemons(l, state, direction), { moved: false, pushed: false });
     assert.deepEqual(state, before);

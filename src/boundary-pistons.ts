@@ -60,14 +60,15 @@ class MotionPlan {
     if (obstacle) {
       const piston = boundaryPiston(this.state, obstacle.key);
       if (piston && this.direction === opposite(piston.direction) && !this.visiting.has(obstacle.key)) {
-        const occupied = this.state.cells.some(c => c.container === obstacle!.key) || this.state.players.some(p => p.container === obstacle!.key);
-        const supported = !this.canTranslate(obstacle);
-        if (!occupied && (!piston.expanded && (!moving.size || supported) || this.compressed.has(obstacle.key) || this.allowCompression && supported)) {
-          if (piston.expanded) this.compressed.add(obstacle.key);
-          return this.resolve({ ...destination, container: obstacle.key }, moving, ignoredPlayer);
+        if (this.tryTranslate(obstacle)) obstacle = undefined;
+        else if (!piston.expanded || this.compressed.has(obstacle.key) || this.allowCompression) {
+          const trial = this.fork();
+          if (piston.expanded) trial.compressed.add(obstacle.key);
+          const entered = trial.resolve({ ...destination, container: obstacle.key }, moving, ignoredPlayer);
+          if (entered) { this.accept(trial); return entered; }
         }
       }
-      if (destination.container !== undefined && obstacle.key === destination.container || !this.moveCell(obstacle)) return null;
+      if (obstacle && (destination.container !== undefined && obstacle.key === destination.container || !this.moveCell(obstacle))) return null;
     }
     for (let i = 0; i < this.state.players.length; i++) {
       const p = this.state.players[i];
@@ -75,6 +76,27 @@ class MotionPlan {
       if (!this.forcePlayers || !this.movePlayer(i)) return null;
     }
     return destination;
+  }
+
+  private fork(allowCompression = this.allowCompression): MotionPlan {
+    const trial = new MotionPlan(this.level, this.state, this.direction, this.forcePlayers, allowCompression);
+    this.cells.forEach((destination, key) => trial.cells.set(key, destination));
+    this.players.forEach((destination, index) => trial.players.set(index, destination));
+    this.compressed.forEach(key => trial.compressed.add(key)); trial.visiting = new Set(this.visiting);
+    return trial;
+  }
+
+  private accept(trial: MotionPlan): void {
+    this.cells.clear(); trial.cells.forEach((destination, key) => this.cells.set(key, destination));
+    this.players.clear(); trial.players.forEach((destination, index) => this.players.set(index, destination));
+    this.compressed.clear(); trial.compressed.forEach(key => this.compressed.add(key)); this.visiting = trial.visiting;
+  }
+
+  private tryTranslate(cell: Cell): boolean {
+    const trial = this.fork(false);
+    // Relative piston motion follows the attempt to translate the rigid body.
+    if (!trial.moveCell(cell)) return false;
+    this.accept(trial); return true;
   }
 
   private canTranslate(cell: Cell): boolean {
@@ -88,7 +110,8 @@ class MotionPlan {
     const groups = bodies(this.state.cells, this.state.pistons?.map(p => this.compressed.has(p.baseKey) ? { ...p, expanded: false } : p));
     const group = [...groups.find(g => g.some(c => c.key === cell.key))!];
     if (this.allowCompression && !this.canTranslate(cell)) {
-      const candidates = (this.state.pistons ?? []).filter(p => p.model === 'boundary' && p.expanded && !this.compressed.has(p.baseKey) && this.direction === opposite(p.direction) && group.some(c => c.key === p.baseKey) && cell.key !== p.baseKey);
+      const candidates = (this.state.pistons ?? []).filter(p => p.model === 'boundary' && p.expanded && !this.compressed.has(p.baseKey) && group.some(c => c.key === p.baseKey) &&
+        (this.direction === opposite(p.direction) && cell.key !== p.baseKey || this.direction === p.direction && cell.key === p.baseKey));
       const distance = supportDistances(this.level, this.state, this.direction);
       candidates.sort((a, b) => (distance.get(a.baseKey) ?? Infinity) - (distance.get(b.baseKey) ?? Infinity) || a.baseKey - b.baseKey);
       if (candidates.length) { this.compressed.add(candidates[0].baseKey); return this.moveCell(cell); }
@@ -115,10 +138,11 @@ class MotionPlan {
       const destination = c.container !== undefined && moving.has(c.container) ? { x: c.x + d.x, y: c.y + d.y, container: c.container } : this.destination(c);
       if (!destination) return false;
       const piston = boundaryPiston(this.state, c.key);
-      if (piston && !piston.expanded && piston.direction === this.direction && !this.state.cells.some(child => child.container === c.key) && !this.state.players.some(child => child.container === c.key)) {
+      if (piston && (!piston.expanded || this.allowCompression || this.compressed.has(c.key)) && piston.direction === this.direction && !this.state.cells.some(child => child.container === c.key) && !this.state.players.some(child => child.container === c.key)) {
         const stored = this.state.cells.find(other => !moving.has(other.key) && address(other) === address(destination));
         if (stored && !this.cells.has(stored.key) && !this.canTranslate(stored)) {
           if (groups.some(body => body.some(part => part.key === stored.key) && body.some(part => part.fixed))) return false;
+          if (piston.expanded) this.compressed.add(c.key);
           this.cells.set(stored.key, { x: stored.x, y: stored.y, container: c.key });
         }
       }

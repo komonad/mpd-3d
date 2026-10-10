@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { blankLevel, checkState, observableState, parseCommands, parseOperations, parseProject, projectDataset, removeCell, replayScenario, Simulation, validateLevel } from '../src/editor-model';
 import { addReferenceReplays, referenceReplays } from '../src/reference-replays';
-import { editorPresets } from '../src/editor-presets';
+import { addMechanismPresets, editorPresets } from '../src/editor-presets';
 import type { Dataset, Level } from '../src/types';
 
 const project = editorPresets();
@@ -82,6 +82,13 @@ test('editor room overrides leave the source dataset unchanged', () => {
   assert.equal(merged.levels[0].title, 'Edited'); assert.equal(data.levels[0].title, '透明粘边');
 });
 
+test('adding mechanism fixtures preserves edited layouts and cases and is idempotent', () => {
+  const draft = { ...structuredClone(project), levels: structuredClone(project.levels.slice(0, 4)), scenarios: structuredClone(project.scenarios.slice(0, 4)) };
+  draft.levels[0].title = 'Edited'; draft.scenarios[0].actions = 'R4';
+  assert.equal(addMechanismPresets(draft), 3); assert.equal(addMechanismPresets(draft), 0);
+  assert.equal(draft.levels[0].title, 'Edited'); assert.equal(draft.scenarios[0].actions, 'R4'); assert.doesNotThrow(() => parseProject(JSON.stringify(draft)));
+});
+
 test('all imported rooms including dormant hints validate without changing native properties', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const imported: Dataset = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8'));
   for (const level of imported.levels) assert.deepEqual(validateLevel(level), [], level.displayName ?? level.id);
@@ -103,6 +110,6 @@ test('recorded original video routes satisfy intermediate and final checkpoints'
     const result = replayScenario(imported, scenario); assert.equal(result.passed, true, scenario.name);
     assert.equal(result.session.current.solved, true); assert.ok(result.rows.every(r => r.accepted));
   }
-  const presets = editorPresets(); assert.equal(addReferenceReplays(imported, presets), 2); assert.equal(addReferenceReplays(imported, presets), 0);
-  assert.equal(presets.scenarios.length, 6); assert.doesNotThrow(() => parseProject(JSON.stringify(presets)));
+  const presets = editorPresets(), count = presets.scenarios.length; assert.equal(addReferenceReplays(imported, presets), 2); assert.equal(addReferenceReplays(imported, presets), 0);
+  assert.equal(presets.scenarios.length, count + 2); assert.doesNotThrow(() => parseProject(JSON.stringify(presets)));
 });

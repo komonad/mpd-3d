@@ -1,6 +1,6 @@
 import './editor.css';
 import { checkState, blankLevel, observableState, parseCommands, parseOperations, parseProject, projectDataset, removeCell, Simulation, validateChecks, validateLevel, type Checkpoint, type CheckResult, type Command, type EditorProject, type ReplayRow, type Scenario } from './editor-model';
-import { editorPresets } from './editor-presets';
+import { addMechanismPresets, editorPresets } from './editor-presets';
 import { addReferenceReplays } from './reference-replays';
 import { levelIdentifier, levelLabels } from './level-labels';
 import type { GameScene } from './scene';
@@ -63,7 +63,7 @@ export class LevelEditor {
       <details class="editor-tests" open><summary>行为测试</summary>
         <label>保存的用例<select id="editor-case"></select></label>
         <label>用例名称<input id="editor-case-name" value="新测试" maxlength="120"/></label>
-        <a id="editor-source" hidden target="_blank" rel="noopener noreferrer">查看解法来源</a><button id="editor-add-references">添加原作通关回放</button>
+        <a id="editor-source" hidden target="_blank" rel="noopener noreferrer">查看解法来源</a><button id="editor-add-references">添加原作通关回放</button><button id="editor-add-mechanisms">添加机制测试</button>
         <label>操作序列<textarea id="editor-actions" rows="2" spellcheck="false" placeholder="R D R U RESET"></textarea></label>
         <p class="editor-caption">U D L R / ↑ ↓ ← →；R3 表示向右三次。RESET、E、Q、H、Z、Y 对应重置、进入、退出、提示、撤销、重做。E(关卡ID) 指定入口。</p>
         <label>检查点 JSON<textarea id="editor-checks" rows="4" spellcheck="false">[]</textarea></label>
@@ -344,6 +344,7 @@ export class LevelEditor {
     click('editor-save-case', () => { const scenario = this.scenario(), index = this.value('editor-case'); if (index === '') this.project.scenarios.push(scenario); else this.project.scenarios[Number(index)] = scenario; this.refreshCases(); this.el<HTMLSelectElement>('editor-case').value = index === '' ? String(this.project.scenarios.length - 1) : index; this.persist(); });
     click('editor-delete-case', () => { const index = this.value('editor-case'); if (index !== '') { this.project.scenarios.splice(Number(index), 1); this.switchToEdit(); this.clearCase(); this.persist(); } });
     click('editor-add-references', () => { const count = addReferenceReplays(this.base, this.project); this.refresh(); this.el('editor-report').textContent = `已添加 ${count} 个原作通关回放`; });
+    click('editor-add-mechanisms', () => { const count = addMechanismPresets(this.project); this.refresh(); this.el('editor-report').textContent = `已添加 ${count} 个机制测试`; });
     click('editor-run', () => { void this.run().catch(e => { this.el('editor-errors').textContent = String(e); }); }); click('editor-run-all', () => { void this.run(true).catch(e => { this.el('editor-errors').textContent = String(e); }); }); click('editor-stop', () => this.stop());
     click('editor-next', () => { const operations = parseOperations(this.value('editor-actions')); if (!this.playing) this.startPlay(); const next = operations[this.currentStep]; if (next) this.command(next.command, next.target, false); });
     click('editor-refresh-json', () => { this.el<HTMLTextAreaElement>('editor-json').value = JSON.stringify(this.project, null, 2); });
