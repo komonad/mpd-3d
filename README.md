@@ -51,6 +51,19 @@ GitHub Pages serves the root of the `gh-pages` branch. That branch contains comp
 
 New sessions start in the outermost entrance hall and follow its portals into the overworld and individual worlds. Progress, discovered shortcuts, cached room states, and entry baselines are saved in browser local storage. Quick jump provides direct access to the overworld, worlds 1–9, A, and B without changing completion progress. The overworld button opens the original outer map; canonical exits connect world maps to that map and its entrance hall. Saved rooms acquire missing outer parents without changing their current layout. Undiscovered shortcuts have gray labels, a dashed frame, and a lock symbol; discovering their target restores black labels. Ordinary entrances remain accessible before discovery. Hover descriptions use the same discovery rule as entry interaction. World-map entrances transform when their corresponding levels are completed. Undo includes resets, scene transitions, and completion progress within the current browser session. The header, scene, controls, and footer occupy separate layout rows; only the level list scrolls within the sidebar. Fullscreen play expands the game area and preserves its controls and camera.
 
+## Saved solutions
+
+The header's solution replay opens the verified route catalogue. Each route runs in an independent room session and leaves completion visible for inspection. Playback supports pause, previous and next operations, restart, a seek bar, operation selection, and speed control. Space toggles playback, Left and Right step through operations, and Q or Esc returns to gameplay. Ctrl exposes intermediate motion and heat frames during playback. Exiting restores gameplay progress and undo history; replay never writes completion to the gameplay save.
+
+`src/solutions.json` stores 43 winning routes across worlds 1–8, including all 20 main rooms in world 1. Routes include movement, reset, undo, and targeted room entry. Each record identifies its room, operation sequence, route origin, optional video source, and final move and push counts. Successful replay requires completion and matching counts. A winning route validates that sequence against the current engine; it does not establish complete equivalence with the original game.
+
+The replay toolbar exports a route as JSON. Verify the catalogue or an exported file with:
+
+```powershell
+npm run test:solutions
+npm run test:solutions -- "D:\experiments\maxwell-solution.json"
+```
+
 ## Level workbench
 
 The header's level editor opens a separate project with its own browser draft. Copy an imported room or create a room, paint blocks, glass, fixed walls, demons, goals, portals, and boundary pistons, then set temperature, capacity, and each face's edge property. The layer selector edits inventory inside any piston, including nested pistons. Project JSON preserves the complete room definitions and test cases. Editing and testing leave gameplay progress separate.

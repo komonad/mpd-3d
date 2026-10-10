@@ -1,6 +1,7 @@
 import './style.css';
 import { GameScene } from './scene';
 import { LevelEditor } from './editor';
+import { SolutionPanel } from './solution-panel';
 import { laboratory } from './laboratory';
 import { cloneState, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
@@ -31,7 +32,7 @@ app.innerHTML = `
     <button class="icon-button mobile-menu" id="menu-button" aria-label="显示关卡列表">${icon('menu')}</button>
     <a class="brand" href="#" aria-label="Maxwell 3D 首页"><span class="brand-mark"><i></i><b>••</b></span><span>MAXWELL’S<small>PUZZLING DEMON</small></span><em>3D</em></a>
     <div class="header-center"><span class="status-dot"></span> A STUDY IN TEMPERATURE <span class="header-line"></span><span id="header-world">温度的世界</span></div>
-    <div class="header-actions"><button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效">${icon('sound')}</button><button class="icon-button" id="help-button" aria-label="玩法说明" title="玩法说明">${icon('help')}</button><button class="icon-button" id="settings-button" aria-label="画面设置" title="画面设置">${icon('settings')}</button><button id="editor-button">关卡编辑器</button></div>
+    <div class="header-actions"><button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效">${icon('sound')}</button><button class="icon-button" id="help-button" aria-label="玩法说明" title="玩法说明">${icon('help')}</button><button class="icon-button" id="settings-button" aria-label="画面设置" title="画面设置">${icon('settings')}</button><button id="solutions-button">解法回放</button><button id="editor-button">关卡编辑器</button></div>
   </header>
   <main class="workspace">
     <aside class="sidebar" aria-label="关卡选择">
@@ -75,6 +76,8 @@ const storageKey = 'maxwell3d-save-v2';
 const preferencesKey = 'maxwell3d-preferences-v1';
 let data: Dataset, level: Level, state: State, scene: GameScene;
 let editor: LevelEditor;
+let solutionPanel: SolutionPanel;
+let replayBackup: { session: Session; undo: Snapshot[]; redo: Snapshot[]; world: string; category: typeof category } | undefined;
 let session: Session, solved = new Set<string>(), undoHistory: Snapshot[] = [], redoHistory: Snapshot[] = [];
 let selectedWorld: string;
 let category: 'main' | 'extra' | 'lab' = 'main';
@@ -112,6 +115,7 @@ function playTone(kind: 'move' | 'push' | 'solve' | 'undo'): void {
   } catch { /* Audio support is optional for movement. */ }
 }
 function save(): void {
+  if (solutionPanel?.active) return;
   try { localStorage.setItem(storageKey, JSON.stringify(snapshotData())); $('#save-status').textContent = '进度自动保存在本机'; }
   catch { $('#save-status').textContent = '当前浏览器无法保存进度'; }
 }
@@ -147,15 +151,15 @@ function renderHud(): void {
   $('#level-title').textContent = levelName(level); $('#level-badge').textContent = levelIdentifier(level);
   $('#breadcrumb-level').textContent = level.category === 'world' ? '世界地图' : level.category === 'hint' ? `${levelIdentifier(level)} 提示` : level.category === 'lab' ? '机制实验室' : `关卡 ${levelIdentifier(level)}`;
   $('#level-description').textContent = level.description ?? (level.category === 'world' ? '靠近入口按 E 进入；完成的关卡入口可以推动。' : level.category === 'hint' ? '在这里自由实验。按 Q 返回关卡。' : '将方块推到蓝色六边形终点，保持小妖冷静。');
-  $('#undo-button').toggleAttribute('disabled', !undoHistory.length); $('#redo-button').toggleAttribute('disabled', !redoHistory.length);
+  $('#undo-button').toggleAttribute('disabled', solutionPanel?.active || !undoHistory.length); $('#redo-button').toggleAttribute('disabled', solutionPanel?.active || !redoHistory.length);
+  $('#reset-button').toggleAttribute('disabled', solutionPanel?.active);
   $('#piston-number-button').hidden = !state.pistons?.some(p => p.model === 'boundary');
   const portals = portalCandidates(data, session);
-  $('#context-action').hidden = !portals.length || state.frozen || state.solved || state.phase === 'cycling';
+  $('#context-action').hidden = solutionPanel?.active || !portals.length || state.frozen || state.solved || state.phase === 'cycling';
   $('#portal-label').textContent = portals.length ? labels.get(portals[0].portal!.target) ?? '未知关卡' : '';
-  const message = $('#state-message'); message.hidden = resolving || (!state.solved && state.phase !== 'cycling');
-  message.className = 'state-message ' + (state.solved ? 'success' : 'frozen');
-  if (state.solved) message.innerHTML = `<span class="message-symbol">${icon('check')}</span><small>EQUILIBRIUM REACHED</small><h3>找到平衡。</h3><p>${state.moves} 步 · ${state.pushes} 次推动</p><div>${canExit() ? '<button id="finish-return" class="primary-button">返回 ' + (session.hints.length ? '关卡' : '上层场景') + icon('right') + '</button>' : '<button id="next-level" class="primary-button">下一关' + icon('right') + '</button><button id="finish-map" class="secondary-button">世界地图</button>'}</div>`;
-  else if (state.phase === 'cycling') message.innerHTML = `<h3>循环结算中</h3><p>活塞进入循环，按 Z 撤销或 R 重置。</p><button id="frozen-undo" class="primary-button">撤销一步 <kbd>Z</kbd></button>`;
+  const message = $('#state-message'); message.hidden = solutionPanel?.active || resolving || state.phase !== 'cycling';
+  message.className = 'state-message frozen';
+  message.innerHTML = state.phase === 'cycling' ? `<h3>循环结算中</h3><p>活塞进入循环，按 Z 撤销或 R 重置。</p><button id="frozen-undo" class="primary-button">撤销一步 <kbd>Z</kbd></button>` : '';
 }
 function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { scene.setDiscoveredLevels(session.visited); scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
 function cancelPlayback(): void { playback++; resolving = false; queuedDirection = undefined; clearTimeout(inputTimer); releaseDetail?.(); $('#step-status').hidden = true; scene.cancelMotionWaits(); }
@@ -170,11 +174,13 @@ function load(id: string, outside: Temperature = 0, existing?: State, preserveCa
   document.body.classList.remove('sidebar-open');
 }
 function selectLevel(id: string): void {
+  solutionPanel?.close();
   const found = levelsById.get(id); if (!found) return;
   if (found.worldId && !unlockedWorlds(data, solved).some(w => w.id === found.worldId)) { notify('这个世界的关卡数据尚未导入。'); return; }
   remember(); session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
 }
 async function step(direction: Direction): Promise<void> {
+  if (solutionPanel?.active) return;
   if (editor?.active) { editor.command((['L', 'D', 'R', 'U'] as const)[direction]); return; }
   if (resolving) { queuedDirection = direction; return; }
   const cooldown = 90 - (performance.now() - inputTime);
@@ -222,10 +228,11 @@ async function step(direction: Direction): Promise<void> {
 }
 function flushInput(): void { if (!resolving && queuedDirection !== undefined) { const direction = queuedDirection; queuedDirection = undefined; void step(direction); } }
 function restore(s: Snapshot): void { const sameLevel = level.id === s.current.levelId; session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current, sameLevel); }
-function undo(): void { if (editor?.active) { editor.command('UNDO'); return; } const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
-function redo(): void { if (editor?.active) { editor.command('REDO'); return; } const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
-function reset(): void { if (editor?.active) { editor.command('RESET'); return; } if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
+function undo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('UNDO'); return; } const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
+function redo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('REDO'); return; } const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
+function reset(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('RESET'); return; } if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
 function enter(targetId?: string): void {
+  if (solutionPanel?.active) return;
   if (editor?.active) { editor.command('ENTER', targetId); return; }
   if (resolving) return;
   const next = enterPortal(data, session, targetId);
@@ -236,6 +243,7 @@ function enter(targetId?: string): void {
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
 function exit(): void {
+  if (solutionPanel?.active) { solutionPanel.close(); return; }
   if (editor?.active) { editor.command('EXIT'); return; }
   if (resolving && state.solved) return;
   if (resolving) cancelPlayback();
@@ -255,7 +263,37 @@ function startHint(): void {
   if (resolving || !level.hintId) return; const next = enterHint(data, session, level.hintId); if (!next) return;
   $<HTMLDialogElement>('#hint-dialog').close(); remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
 }
-function requestHint(): void { if (editor?.active) { editor.command('HINT'); return; } if (!resolving) level.hintId ? startHint() : openHint(); }
+function requestHint(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('HINT'); return; } if (!resolving) level.hintId ? startHint() : openHint(); }
+
+async function showSolution(current: Session, snap: boolean): Promise<void> {
+  const sameLevel = level.id === current.current.levelId, pushing = current.current.pushes > state.pushes;
+  cancelPlayback(); session = current; solved = new Set(session.solved);
+  if (snap || !sameLevel) { load(current.current.levelId, current.current.outside, current.current, sameLevel); return; }
+  state = current.current; resolving = true; renderHud(); renderLevels();
+  const token = ++playback, frames = state.turnFrames ?? []; let index = 0;
+  while (ctrlHeld && index < frames.length) {
+    const frame = frames[index++]; $('#step-status').hidden = false;
+    $('#step-status').textContent = `Ctrl · ${index}/${frames.length} · ${frame.phase === 'heat' ? '热量平衡' : '移动与活塞'}`;
+    scene.update({ ...state, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+    await new Promise<void>(resolve => {
+      const finish = () => { clearTimeout(timer); if (releaseDetail === finish) releaseDetail = undefined; resolve(); };
+      const timer = setTimeout(finish, 260); releaseDetail = finish;
+    });
+    if (token !== playback) return;
+  }
+  $('#step-status').hidden = true;
+  const started = performance.now();
+  for (const { frame, at } of turnPlayback(frames.slice(index))) {
+    const delay = at - (performance.now() - started); if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
+    if (token !== playback) return;
+    scene.update({ ...state, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+  }
+  if (token !== playback) return;
+  scene.update(state, false, pushing ? 'pushing' : 'walking');
+  const settled = await scene.whenSettled();
+  if (!settled || token !== playback) return;
+  resolving = false; renderHud();
+}
 function applyPreferences(): void {
   scene.setTilt(preferences.tilt); scene.setExposure(preferences.light); scene.setQuality(preferences.quality); scene.setGrid(preferences.grid); scene.setFreeView(preferences.freeView);
   $('#tilt-label').textContent = `${preferences.tilt}°`; $('#tilt-output').textContent = `${preferences.tilt}°`; $('#light-output').textContent = preferences.light.toFixed(2);
@@ -288,7 +326,8 @@ async function toggleFullscreen(): Promise<void> {
   updateFullscreen();
 }
 function bind(): void {
-  $('#editor-button').onclick = () => { if (editor.active) editor.close(); else { cancelPlayback(); $('#editor-button').setAttribute('data-origin', level.id); editor.open(level); } };
+  $('#editor-button').onclick = () => { solutionPanel.close(); if (editor.active) editor.close(); else { cancelPlayback(); $('#editor-button').setAttribute('data-origin', level.id); editor.open(level); } };
+  $('#solutions-button').onclick = () => { if (editor.active) editor.close(); solutionPanel.open(level.id); };
   $('#level-list').addEventListener('click', e => { const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-level]'); if (button) selectLevel(button.dataset.level!); });
   $('#main-tab').onclick = () => { category = 'main'; renderLevels(); }; $('#extra-tab').onclick = () => { category = 'extra'; renderLevels(); };
   $('#lab-tab').onclick = () => { category = 'lab'; renderLevels(); };
@@ -310,7 +349,7 @@ function bind(): void {
   $('#menu-button').onclick = () => document.body.classList.toggle('sidebar-open');
   $('#state-message').addEventListener('click', e => {
     const id = (e.target as HTMLElement).closest('button')?.id;
-    if (id === 'finish-return') exit(); if (id === 'next-level') nextLevel(); if (id === 'finish-map') selectLevel(selectedWorld); if (id === 'frozen-undo') undo();
+    if (id === 'frozen-undo') undo();
   });
   document.querySelectorAll<HTMLButtonElement>('[data-dir]').forEach(b => { b.onclick = () => step(Number(b.dataset.dir) as Direction); });
   document.querySelectorAll<HTMLButtonElement>('[data-close]').forEach(b => { b.onclick = () => b.closest('dialog')!.close(); });
@@ -325,6 +364,12 @@ function bind(): void {
     ctrlHeld = e.ctrlKey;
     if (document.querySelector('dialog[open]') || e.altKey || e.metaKey || (e.target as HTMLElement).matches('input, select, textarea, [contenteditable="true"]')) return;
     const key = e.key.toLowerCase(); const keys: Record<string, Direction> = { arrowleft: 0, a: 0, arrowdown: 1, s: 1, arrowright: 2, d: 2, arrowup: 3, w: 3 };
+    if (solutionPanel.active && key !== 'f' && key !== 'v' && key !== 'tab') {
+      if (key === ' ' || key === 'arrowleft' || key === 'arrowright' || key === 'escape' || key === 'q') {
+        e.preventDefault(); $(`#solution-${key === ' ' ? 'play' : key === 'arrowleft' ? 'previous' : key === 'arrowright' ? 'next' : 'exit'}`).click();
+      }
+      return;
+    }
     if (editor.active && !editor.playing && key !== 'f' && key !== 'v') return;
     if (key in keys) { e.preventDefault(); step(keys[key]); }
     else if (e.ctrlKey) return;
@@ -369,6 +414,20 @@ async function start(): Promise<void> {
     const response = await fetch(`${import.meta.env.BASE_URL}levels.local.json`); if (!response.ok) throw new Error('关卡数据尚未导入。请在项目目录运行 npm run import:levels。');
     data = await response.json(); data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
+    solutionPanel = new SolutionPanel(data, {
+      begin: () => {
+        cancelPlayback(); replayBackup = { session: snapshot(), undo: undoHistory, redo: redoHistory, world: selectedWorld, category };
+        undoHistory = []; redoHistory = []; document.body.classList.add('replay-active');
+      },
+      show: showSolution,
+      cancelMotion: cancelPlayback,
+      end: () => {
+        if (!replayBackup) return;
+        session = replayBackup.session; undoHistory = replayBackup.undo; redoHistory = replayBackup.redo;
+        selectedWorld = replayBackup.world; category = replayBackup.category; solved = new Set(session.solved); replayBackup = undefined;
+        document.body.classList.remove('replay-active'); load(session.current.levelId, session.current.outside, session.current, true);
+      },
+    });
     editor = new LevelEditor(data, scene, () => load(session.current.levelId, session.current.outside, session.current, true));
     try { const saved = JSON.parse(localStorage.getItem(preferencesKey) ?? 'null'); if (saved) preferences = { ...preferences, ...saved }; } catch { /* Defaults remain valid when a browser save is unreadable. */ }
     applyPreferences();
