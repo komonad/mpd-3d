@@ -2,7 +2,7 @@ import catalogue from './solutions.json';
 import { parseOperations, Simulation, type Operation, type SimulationCheckpoint } from './editor-model';
 import { cloneState } from './engine';
 import { selectSession, type Session } from './session';
-import type { Dataset } from './types';
+import type { Dataset, Level } from './types';
 
 export interface SavedSolution {
   levelId: string;
@@ -10,7 +10,7 @@ export interface SavedSolution {
   actions: string;
   origin: 'search' | 'video' | 'play';
   source?: string;
-  start?: SimulationCheckpoint | { levelId: string; solved?: string[]; visited?: string[] };
+  start?: SimulationCheckpoint | { levelId: string; solved?: string[]; visited?: string[]; completion?: 'previous-numbered' };
   entryStep?: number;
   id?: string;
   expected: { moves: number; pushes: number };
@@ -20,6 +20,23 @@ export const savedSolutions = catalogue.solutions as SavedSolution[];
 export const solutionStartId = (solution: SavedSolution): string => solution.start && 'session' in solution.start ? solution.start.session.current.levelId : solution.start?.levelId ?? solution.levelId;
 export const solutionCrossesScenes = (solution: SavedSolution): boolean => solutionStartId(solution) !== solution.levelId ||
   parseOperations(solution.actions).some(operation => operation.command === 'EXIT' || operation.command === 'HINT' || operation.command === 'ENTER' && operation.target !== solution.levelId);
+
+const roomNumber = (level: Level): number[] | undefined => {
+  const name = level.displayName ?? level.label;
+  return level.category === 'main' && /^\d+-\d+$/.test(name) ? name.split('-').map(Number) : undefined;
+};
+
+export function solutionStartProgress(data: Dataset, solution: SavedSolution): { solved: string[]; visited: string[] } {
+  const start = solution.start;
+  if (start && 'session' in start) return { solved: start.session.solved, visited: start.session.visited };
+  const destination = data.levels.find(level => level.id === solution.levelId);
+  const number = destination && roomNumber(destination);
+  const previous = start?.completion === 'previous-numbered' && number ? data.levels.filter(level => {
+    const candidate = roomNumber(level);
+    return candidate && (candidate[0] < number[0] || candidate[0] === number[0] && candidate[1] < number[1]);
+  }).map(level => level.id) : [];
+  return { solved: [...new Set([...previous, ...(start?.solved ?? [])])], visited: [...new Set([...previous, ...(start?.visited ?? [])])] };
+}
 
 export function solutionFile(solutions: SavedSolution[]) {
   const starts: Record<string, NonNullable<SavedSolution['start']>> = {}, references = new Map<NonNullable<SavedSolution['start']>, string>();
@@ -90,7 +107,10 @@ export function parseSolutionFile(text: string, data: Dataset): SavedSolution[] 
     if (solution.start) {
       if ('session' in solution.start) {
         if (!session(solution.start.session) || ![solution.start.undo, solution.start.redo].every(history => Array.isArray(history) && history.length <= 512 && history.every(session))) throw new Error('回放起点缺少有效的场景缓存或历史。');
-      } else if (!levels.has(solution.start.levelId) || [solution.start.solved, solution.start.visited].some(ids => ids !== undefined && (!Array.isArray(ids) || ids.some(id => !levels.has(id))))) throw new Error('回放起点的场景或进度无效。');
+      } else {
+        if (!levels.has(solution.start.levelId) || [solution.start.solved, solution.start.visited].some(ids => ids !== undefined && (!Array.isArray(ids) || ids.some(id => !levels.has(id))))) throw new Error('回放起点的场景或进度无效。');
+        if (solution.start.completion !== undefined && (solution.start.completion !== 'previous-numbered' || !roomNumber(data.levels.find(level => level.id === solution.levelId)!))) throw new Error('回放的前序通关条件无效。');
+      }
     }
   }
   return structuredClone(solutions);
@@ -116,7 +136,8 @@ export class SolutionReplay {
     const level = this.data.levels.find(l => l.id === solutionStartId(this.solution));
     if (!level) throw new Error('解法对应的关卡数据未载入。');
     const start = this.solution.start;
-    const checkpoint = start && ('session' in start ? start : { session: selectSession(this.data, level, start.solved, start.visited), undo: [], redo: [] });
+    const progress = solutionStartProgress(this.data, this.solution);
+    const checkpoint = start && ('session' in start ? start : { session: selectSession(this.data, level, progress.solved, progress.visited), undo: [], redo: [] });
     return new Simulation(this.data, level, checkpoint);
   }
 

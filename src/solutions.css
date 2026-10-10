@@ -2,4 +2,5 @@
 .solution-buttons a{font-size:11px;padding:6px 9px;text-decoration:underline}.solution-buttons a[hidden]{display:none}
 .solution-library-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.solution-library-actions button{padding:8px 10px;border:1px solid var(--line);border-radius:5px;font-size:12px}
 .solution-library-row{display:flex;gap:4px}.solution-library-row .solution-entry{flex:1;min-width:0}.solution-remove{padding:8px;font-size:18px;color:var(--muted)}
+.solution-entry strong{white-space:nowrap;flex-shrink:0}.solution-entry span{min-width:0;line-height:1.5}
 @media(max-width:440px){.brand em{display:none}.header-actions #solutions-button,.header-actions #editor-button{white-space:nowrap;font-size:10px;padding:8px}}

@@ -9,6 +9,10 @@
       "expected": {
         "moves": 14,
         "pushes": 5
+      },
+      "start": {
+        "levelId": "79c615b0",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -19,6 +23,10 @@
       "expected": {
         "moves": 19,
         "pushes": 7
+      },
+      "start": {
+        "levelId": "a742df19",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -29,6 +37,10 @@
       "expected": {
         "moves": 11,
         "pushes": 8
+      },
+      "start": {
+        "levelId": "7885951d",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -39,6 +51,10 @@
       "expected": {
         "moves": 28,
         "pushes": 13
+      },
+      "start": {
+        "levelId": "c6caf002",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -49,6 +65,10 @@
       "expected": {
         "moves": 19,
         "pushes": 9
+      },
+      "start": {
+        "levelId": "8ffac265",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -59,6 +79,10 @@
       "expected": {
         "moves": 24,
         "pushes": 14
+      },
+      "start": {
+        "levelId": "5ff09ca0",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -70,6 +94,10 @@
       "expected": {
         "moves": 78,
         "pushes": 25
+      },
+      "start": {
+        "levelId": "c6f422c4",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -80,6 +108,10 @@
       "expected": {
         "moves": 57,
         "pushes": 30
+      },
+      "start": {
+        "levelId": "7c1d7402",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -90,6 +122,10 @@
       "expected": {
         "moves": 30,
         "pushes": 9
+      },
+      "start": {
+        "levelId": "b016124e",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -101,6 +137,10 @@
       "expected": {
         "moves": 77,
         "pushes": 29
+      },
+      "start": {
+        "levelId": "7f6f9979",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -112,6 +152,10 @@
       "expected": {
         "moves": 86,
         "pushes": 40
+      },
+      "start": {
+        "levelId": "0f029258",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -123,6 +167,10 @@
       "expected": {
         "moves": 94,
         "pushes": 25
+      },
+      "start": {
+        "levelId": "1e9b113b",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -133,6 +181,10 @@
       "expected": {
         "moves": 40,
         "pushes": 13
+      },
+      "start": {
+        "levelId": "f1461519",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -143,6 +195,10 @@
       "expected": {
         "moves": 55,
         "pushes": 13
+      },
+      "start": {
+        "levelId": "e8bb4801",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -154,6 +210,10 @@
       "expected": {
         "moves": 80,
         "pushes": 25
+      },
+      "start": {
+        "levelId": "4b1153be",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -165,6 +225,10 @@
       "expected": {
         "moves": 135,
         "pushes": 34
+      },
+      "start": {
+        "levelId": "a81d725f",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -176,6 +240,10 @@
       "expected": {
         "moves": 50,
         "pushes": 19
+      },
+      "start": {
+        "levelId": "612e58c2",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -187,6 +255,10 @@
       "expected": {
         "moves": 126,
         "pushes": 33
+      },
+      "start": {
+        "levelId": "00c134fe",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -198,6 +270,10 @@
       "expected": {
         "moves": 119,
         "pushes": 33
+      },
+      "start": {
+        "levelId": "f9ab0810",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -209,6 +285,10 @@
       "expected": {
         "moves": 95,
         "pushes": 35
+      },
+      "start": {
+        "levelId": "32dce6a9",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -216,7 +296,8 @@
       "label": "2-1",
       "origin": "video",
       "start": {
-        "levelId": "6c1848b0"
+        "levelId": "6c1848b0",
+        "completion": "previous-numbered"
       },
       "actions": "R U2 ENTER(215c0725) R2 D R2 L2 U2 R2 L3 R4 D R2 U L6 D R2 D R U R2",
       "entryStep": 4,
@@ -234,6 +315,10 @@
       "expected": {
         "moves": 41,
         "pushes": 12
+      },
+      "start": {
+        "levelId": "13b17116",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -245,6 +330,10 @@
       "expected": {
         "moves": 42,
         "pushes": 18
+      },
+      "start": {
+        "levelId": "e80e6019",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -256,6 +345,10 @@
       "expected": {
         "moves": 76,
         "pushes": 24
+      },
+      "start": {
+        "levelId": "68241505",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -267,6 +360,10 @@
       "expected": {
         "moves": 103,
         "pushes": 33
+      },
+      "start": {
+        "levelId": "0a113c1f",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -278,6 +375,10 @@
       "expected": {
         "moves": 145,
         "pushes": 65
+      },
+      "start": {
+        "levelId": "d07f4968",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -289,6 +390,10 @@
       "expected": {
         "moves": 203,
         "pushes": 88
+      },
+      "start": {
+        "levelId": "f4df7bdf",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -300,6 +405,10 @@
       "expected": {
         "moves": 35,
         "pushes": 14
+      },
+      "start": {
+        "levelId": "621419ea",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -311,6 +420,10 @@
       "expected": {
         "moves": 98,
         "pushes": 50
+      },
+      "start": {
+        "levelId": "1435f49f",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -322,6 +435,10 @@
       "expected": {
         "moves": 33,
         "pushes": 12
+      },
+      "start": {
+        "levelId": "192f2ce1",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -333,6 +450,10 @@
       "expected": {
         "moves": 60,
         "pushes": 25
+      },
+      "start": {
+        "levelId": "68ae7592",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -344,6 +465,10 @@
       "expected": {
         "moves": 97,
         "pushes": 42
+      },
+      "start": {
+        "levelId": "00ab1e70",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -355,6 +480,10 @@
       "expected": {
         "moves": 88,
         "pushes": 25
+      },
+      "start": {
+        "levelId": "e25aeb7a",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -366,6 +495,10 @@
       "expected": {
         "moves": 50,
         "pushes": 50
+      },
+      "start": {
+        "levelId": "3b80a1f9",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -377,6 +510,10 @@
       "expected": {
         "moves": 67,
         "pushes": 22
+      },
+      "start": {
+        "levelId": "4e6fb743",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -388,6 +525,10 @@
       "expected": {
         "moves": 28,
         "pushes": 28
+      },
+      "start": {
+        "levelId": "a679896b",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -399,6 +540,10 @@
       "expected": {
         "moves": 167,
         "pushes": 58
+      },
+      "start": {
+        "levelId": "ce9ce823",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -410,6 +555,10 @@
       "expected": {
         "moves": 103,
         "pushes": 26
+      },
+      "start": {
+        "levelId": "bd8dabb6",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -421,6 +570,10 @@
       "expected": {
         "moves": 72,
         "pushes": 72
+      },
+      "start": {
+        "levelId": "c4fc4564",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -432,6 +585,10 @@
       "expected": {
         "moves": 174,
         "pushes": 63
+      },
+      "start": {
+        "levelId": "41d7e33b",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -440,7 +597,8 @@
       "origin": "video",
       "source": "https://www.bilibili.com/video/BV1PUhuz8ExK/",
       "start": {
-        "levelId": "214a0e55"
+        "levelId": "214a0e55",
+        "completion": "previous-numbered"
       },
       "entryStep": 5,
       "actions": "D R3 ENTER(f094349a) U R2 U R2 D U R2 D3 L U R U L4 R2 D2 ENTER(f094349a) L U2 R D2",
@@ -461,7 +619,8 @@
         ],
         "visited": [
           "f094349a"
-        ]
+        ],
+        "completion": "previous-numbered"
       },
       "entryStep": 14,
       "actions": "U ENTER(f094349a) EXIT U2 R U2 R2 D3 ENTER(523a87ff) D R3 U R2 U4 R3 D L2 U L D3 R D L2 R2 ENTER(523a87ff) D R3 U2",
@@ -480,6 +639,10 @@
       "expected": {
         "moves": 18,
         "pushes": 5
+      },
+      "start": {
+        "levelId": "84f5a19a",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -492,6 +655,10 @@
       "expected": {
         "moves": 63,
         "pushes": 9
+      },
+      "start": {
+        "levelId": "acd2d224",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -504,6 +671,10 @@
       "expected": {
         "moves": 130,
         "pushes": 34
+      },
+      "start": {
+        "levelId": "35edb070",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -516,6 +687,10 @@
       "expected": {
         "moves": 111,
         "pushes": 29
+      },
+      "start": {
+        "levelId": "8755c44c",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -528,6 +703,10 @@
       "expected": {
         "moves": 65,
         "pushes": 19
+      },
+      "start": {
+        "levelId": "056bf21e",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -540,6 +719,10 @@
       "expected": {
         "moves": 196,
         "pushes": 79
+      },
+      "start": {
+        "levelId": "dfe1b9ca",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -552,6 +735,10 @@
       "expected": {
         "moves": 166,
         "pushes": 45
+      },
+      "start": {
+        "levelId": "c9835934",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -564,6 +751,10 @@
       "expected": {
         "moves": 81,
         "pushes": 31
+      },
+      "start": {
+        "levelId": "7d3a64ae",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -576,6 +767,10 @@
       "expected": {
         "moves": 10,
         "pushes": 6
+      },
+      "start": {
+        "levelId": "f279621b",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -584,7 +779,8 @@
       "origin": "video",
       "source": "https://www.bilibili.com/video/BV1PUhuz8ExK/",
       "start": {
-        "levelId": "f279621b"
+        "levelId": "f279621b",
+        "completion": "previous-numbered"
       },
       "entryStep": 4,
       "actions": "D R2 ENTER(b32c8c9c) U3 R2 U2 L D ENTER(f279621b) R ENTER(b32c8c9c) U3 R4 U R2 D4 L2 R2 U3 ENTER(f279621b) R ENTER(b32c8c9c) U3 R4 U R2 D4 L4",
@@ -603,6 +799,10 @@
       "expected": {
         "moves": 4,
         "pushes": 2
+      },
+      "start": {
+        "levelId": "9334fa16",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -611,7 +811,8 @@
       "origin": "video",
       "source": "https://www.bilibili.com/video/BV1PUhuz8ExK/",
       "start": {
-        "levelId": "9334fa16"
+        "levelId": "9334fa16",
+        "completion": "previous-numbered"
       },
       "entryStep": 10,
       "actions": "U2 R5 D2 ENTER(83e5acbe) R3 D2 L2 R2 U2 R2 D2 L3 D L U R U L D ENTER(9334fa16) U R3 D ENTER(83e5acbe) L D R3 U R D L D R3",
@@ -630,6 +831,10 @@
       "expected": {
         "moves": 65,
         "pushes": 8
+      },
+      "start": {
+        "levelId": "d6f916c3",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -638,7 +843,8 @@
       "origin": "video",
       "source": "https://www.bilibili.com/video/BV1PUhuz8ExK/",
       "start": {
-        "levelId": "d6f916c3"
+        "levelId": "d6f916c3",
+        "completion": "previous-numbered"
       },
       "entryStep": 6,
       "actions": "U R2 D R ENTER(18e88a0f) U2 L3 D2 R2 L2 ENTER(d6f916c3) U R2 D R ENTER(18e88a0f) R U L3 U L D3 R D2 R6 U L2 D L U2 R U L U L2 U L3 D ENTER(d6f916c3) U R2 D R ENTER(18e88a0f) U L U L3 D R2 U R D3 L D2 L U3 R U L U L2 D R U R2 D4 R2 L2 U4 L2 D2 R3 D2 R L U4 R D L D2 ENTER(d6f916c3) U R2 D R ENTER(18e88a0f) L D3 R U2 R U2 ENTER(d6f916c3) U R2 D R ENTER(18e88a0f) D R2 D L2 U2 L U2 R D L D R U R D2 L D R4 U3 D3 ENTER(d6f916c3) U R2 D R ENTER(18e88a0f) R2 U2 R2",
@@ -657,6 +863,10 @@
       "expected": {
         "moves": 13,
         "pushes": 9
+      },
+      "start": {
+        "levelId": "3b787421",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -665,7 +875,8 @@
       "origin": "video",
       "source": "https://www.bilibili.com/video/BV1PUhuz8ExK/",
       "start": {
-        "levelId": "3b787421"
+        "levelId": "3b787421",
+        "completion": "previous-numbered"
       },
       "entryStep": 4,
       "actions": "U L2 ENTER(3a19514d) U ENTER(3b787421) U L U3 R D2 L2 D ENTER(3a19514d) U ENTER(3b787421) U R U D R2 U2 L2 U L D2 R4 D2 ENTER(c2c9af47) U ENTER(3b787421) U2 D L2 ENTER(3a19514d) R U2 ENTER(3b787421) U2 L ENTER(3a19514d) U R U2 L D2 R D L ENTER(3b787421) U2 R U2 L R D3 L3 ENTER(3a19514d) R5 U",
@@ -680,7 +891,8 @@
       "origin": "video",
       "source": "https://www.bilibili.com/video/BV1PUhuz8ExK/",
       "start": {
-        "levelId": "3b787421"
+        "levelId": "3b787421",
+        "completion": "previous-numbered"
       },
       "entryStep": 41,
       "actions": "U L2 ENTER(3a19514d) U ENTER(3b787421) U L U3 R D2 L2 D ENTER(3a19514d) U ENTER(3b787421) U R U D R2 U2 L2 U L D2 R4 D2 ENTER(c2c9af47) U ENTER(3b787421) U2 D L2 ENTER(3a19514d) R U2 ENTER(3b787421) U2 L ENTER(3a19514d) U R U2 L D2 R D L ENTER(3b787421) U2 R U2 L R D3 L3 ENTER(3a19514d) R5 U EXIT U2 L U R4 U R D3 EXIT ENTER(c2c9af47) EXIT L U2 L2 R4 D ENTER(c2c9af47) R U2 ENTER(3b787421) U R4 D ENTER(c2c9af47) R U3 L D2 R D L ENTER(3b787421) U R2 D2 R ENTER(c2c9af47) R5 U",
@@ -698,6 +910,10 @@
       "expected": {
         "moves": 95,
         "pushes": 15
+      },
+      "start": {
+        "levelId": "6290240c",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -708,6 +924,10 @@
       "expected": {
         "moves": 17,
         "pushes": 7
+      },
+      "start": {
+        "levelId": "dd8c5c84",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -718,6 +938,10 @@
       "expected": {
         "moves": 24,
         "pushes": 11
+      },
+      "start": {
+        "levelId": "93c8cbea",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -728,6 +952,10 @@
       "expected": {
         "moves": 1,
         "pushes": 1
+      },
+      "start": {
+        "levelId": "c7956f38",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -738,6 +966,10 @@
       "expected": {
         "moves": 2,
         "pushes": 1
+      },
+      "start": {
+        "levelId": "20279c76",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -748,6 +980,10 @@
       "expected": {
         "moves": 13,
         "pushes": 6
+      },
+      "start": {
+        "levelId": "c183cf94",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -758,6 +994,10 @@
       "expected": {
         "moves": 5,
         "pushes": 2
+      },
+      "start": {
+        "levelId": "110b1547",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -768,6 +1008,10 @@
       "expected": {
         "moves": 7,
         "pushes": 3
+      },
+      "start": {
+        "levelId": "f570b8bb",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -778,6 +1022,10 @@
       "expected": {
         "moves": 7,
         "pushes": 5
+      },
+      "start": {
+        "levelId": "552e1bc1",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -788,6 +1036,10 @@
       "expected": {
         "moves": 22,
         "pushes": 9
+      },
+      "start": {
+        "levelId": "d8cb9fd7",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -798,6 +1050,10 @@
       "expected": {
         "moves": 22,
         "pushes": 8
+      },
+      "start": {
+        "levelId": "c6b5e302",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -808,6 +1064,10 @@
       "expected": {
         "moves": 2,
         "pushes": 0
+      },
+      "start": {
+        "levelId": "4bb8c038",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -818,6 +1078,10 @@
       "expected": {
         "moves": 25,
         "pushes": 14
+      },
+      "start": {
+        "levelId": "300b35e4",
+        "completion": "previous-numbered"
       }
     },
     {
@@ -828,6 +1092,10 @@
       "expected": {
         "moves": 17,
         "pushes": 10
+      },
+      "start": {
+        "levelId": "f463bec4",
+        "completion": "previous-numbered"
       }
     }
   ]

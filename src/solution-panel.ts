@@ -1,4 +1,4 @@
-import { operationLabel, parseSolutionFile, savedSolutions, solutionCrossesScenes, solutionFile, solutionStartId, SolutionRecording, SolutionReplay, type SavedSolution } from './solutions';
+import { operationLabel, parseSolutionFile, savedSolutions, solutionCrossesScenes, solutionFile, solutionStartId, solutionStartProgress, SolutionRecording, SolutionReplay, type SavedSolution } from './solutions';
 import type { Operation, SimulationCheckpoint } from './editor-model';
 import type { Dataset } from './types';
 import type { Session } from './session';
@@ -33,7 +33,7 @@ export class SolutionPanel {
     data.levels.forEach(level => this.levelNames.set(level.id, level.displayName ?? level.label));
     this.dialog.id = 'solutions-dialog'; this.dialog.className = 'solutions-dialog';
     this.dialog.setAttribute('aria-label', '已保存的解法');
-    this.dialog.innerHTML = `<div class="solution-heading"><h2>已保存的解法</h2><button id="solutions-close" aria-label="关闭解法列表">×</button></div><div class="solution-library-actions"><button id="solution-record">从当前场景开始录制</button><button id="solution-import">导入回放</button><input id="solution-file" type="file" accept="application/json,.json" hidden/></div><p id="solution-recording" role="status"></p><p id="solutions-count"></p><div id="solutions-list"></div><p class="solution-note">关内路线从关卡初始布局开始。跨场景路线保留起点存档及入口准备过程。录制期间每次通关自动保存；回放独立运行，退出后恢复游玩进度。</p>`;
+    this.dialog.innerHTML = `<div class="solution-heading"><h2>已保存的解法</h2><button id="solutions-close" aria-label="关闭解法列表">×</button></div><div class="solution-library-actions"><button id="solution-record">从当前场景开始录制</button><button id="solution-import">导入回放</button><input id="solution-file" type="file" accept="application/json,.json" hidden/></div><p id="solution-recording" role="status"></p><p id="solutions-count"></p><div id="solutions-list"></div><p class="solution-note">预置解法以此前数字关卡已完成为起点，保留所需的入口准备。个人录制保留实际场景、进度和房间缓存。录制期间每次通关自动保存；回放独立运行，退出后恢复游玩进度。</p>`;
     this.bar.id = 'solution-controls'; this.bar.className = 'solution-controls'; this.bar.hidden = true;
     this.bar.setAttribute('aria-label', '解法回放');
     this.bar.innerHTML = `<div class="solution-status"><strong id="solution-title"></strong><span id="solution-position" role="status"></span></div><div class="solution-buttons"><button id="solution-restart">从头</button><button id="solution-previous">上一步</button><button id="solution-play">播放</button><button id="solution-next">下一步</button><label>速度<select id="solution-speed" aria-label="回放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label><a id="solution-source" target="_blank" rel="noopener noreferrer" hidden>视频来源</a><button id="solution-export">导出解法</button><button id="solution-exit">退出回放</button></div><input id="solution-progress" type="range" min="0" value="0" aria-label="回放进度"/><div id="solution-actions" class="solution-actions" aria-label="解法操作序列"></div>`;
@@ -102,8 +102,9 @@ export class SolutionPanel {
       const button = document.createElement('button'); button.className = 'solution-entry'; button.dataset.solution = solution.levelId;
       button.setAttribute('aria-current', String(solution.levelId === currentId));
       const label = document.createElement('strong'); label.textContent = solution.label;
-      const progress = solution.start && ('session' in solution.start ? solution.start.session.solved : solution.start.solved);
-      const detail = document.createElement('span'); detail.textContent = `${solution.expected.moves} 步 · ${solution.expected.pushes} 次推动 · ${solutionCrossesScenes(solution) ? '跨场景路线' : solution.start ? '含起点存档' : '关内路线'}${progress?.length ? ` · 起点已完成 ${progress.length} 关` : ''}`;
+      const progress = solutionStartProgress(this.data, solution);
+      const previous = solution.start && !('session' in solution.start) && solution.start.completion === 'previous-numbered';
+      const detail = document.createElement('span'); detail.textContent = `${solution.expected.moves} 步 · ${solution.expected.pushes} 次推动 · ${solutionCrossesScenes(solution) ? '跨场景路线' : '关内路线'} · 从 ${this.levelNames.get(solutionStartId(solution))} 开始${previous ? ' · 此前数字关卡已完成' : progress.solved.length ? ` · 起点已完成 ${progress.solved.length} 关` : ''}`;
       button.append(label, detail); button.onclick = () => { this.dialog.close(); void this.start(solution); };
       const row = document.createElement('div'); row.className = 'solution-library-row'; row.append(button); list.append(row);
       if (this.personal.includes(solution)) {

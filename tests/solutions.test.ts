@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { observableState, Simulation } from '../src/editor-model';
-import { compactOperations, parseSolutionFile, savedSolutions, solutionFile, SolutionRecording, SolutionReplay } from '../src/solutions';
+import { compactOperations, parseSolutionFile, savedSolutions, solutionFile, solutionStartProgress, SolutionRecording, SolutionReplay } from '../src/solutions';
 import { parseOperations } from '../src/editor-model';
 import type { Dataset, Level } from '../src/types';
 
@@ -22,6 +22,26 @@ test('every saved solution completes through the room-session simulation', { ski
     assert.equal(replay.passed, true, solution.label);
     assert.equal(replay.advance(), undefined); assert.equal(replay.cursor, replay.operations.length);
   }
+});
+
+test('numbered replay starts complete earlier worlds and rooms while leaving the destination and later rooms unsolved', { skip: !data }, () => {
+  const solution = savedSolutions.find(solution => solution.label === '3-12')!;
+  const progress = solutionStartProgress(data!, solution);
+  const earlier = data!.levels.filter(level => level.category === 'main' && /^\d+-\d+$/.test(level.displayName ?? '')).filter(level => {
+    const [world, number] = level.displayName!.split('-').map(Number);
+    return world < 3 || world === 3 && number < 12;
+  }).map(level => level.id);
+  assert.deepEqual(new Set(progress.solved), new Set(earlier));
+  assert.deepEqual(progress.visited, progress.solved);
+  assert.equal(progress.solved.includes(solution.levelId), false);
+  assert.equal(progress.solved.includes(savedSolutions.find(solution => solution.label === '3-13')!.levelId), false);
+  const run = new SolutionReplay(data!, solution);
+  assert.equal(run.simulation.session.current.levelId, 'f279621b');
+  const entrance = run.simulation.session.current.cells.find(cell => cell.portal?.target === solution.levelId)!;
+  assert.equal(entrance.temperature, entrance.portal!.before.temperature);
+  const restored = parseSolutionFile(JSON.stringify(solutionFile([solution])), data!)[0];
+  assert.deepEqual(solutionStartProgress(data!, restored), progress);
+  assert.ok(savedSolutions.every(solution => solution.start && !('session' in solution.start) && solution.start.completion === 'previous-numbered'));
 });
 
 for (const label of ['1-11', '7-1', '3-1', '2-1']) {
@@ -94,7 +114,10 @@ test('a blocked prefix prevents a replay from passing even when its final counts
 });
 
 test('solution files accept legacy routes and reject missing rooms or malformed starts', { skip: !data }, () => {
-  assert.deepEqual(parseSolutionFile(JSON.stringify({ version: 1, solutions: [savedSolutions[0]] }), data!), [savedSolutions[0]]);
+  const { start: _, ...legacy } = savedSolutions[0];
+  assert.deepEqual(parseSolutionFile(JSON.stringify({ version: 1, solutions: [legacy] }), data!), [legacy]);
+  assert.deepEqual(solutionStartProgress(data!, legacy), { solved: [], visited: [] });
   assert.throws(() => parseSolutionFile(JSON.stringify({ version: 2, solutions: [{ ...savedSolutions[0], start: { levelId: 'missing' } }] }), data!));
   assert.throws(() => parseSolutionFile(JSON.stringify({ version: 2, solutions: [{ ...savedSolutions[0], start: { session: {}, undo: [], redo: [] } }] }), data!));
+  assert.throws(() => parseSolutionFile(JSON.stringify({ version: 2, solutions: [{ ...savedSolutions[0], start: { levelId: savedSolutions[0].levelId, completion: 'all' } }] }), data!));
 });
