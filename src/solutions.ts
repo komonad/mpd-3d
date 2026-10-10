@@ -18,6 +18,8 @@ export interface SavedSolution {
 
 export const savedSolutions = catalogue.solutions as SavedSolution[];
 export const solutionStartId = (solution: SavedSolution): string => solution.start && 'session' in solution.start ? solution.start.session.current.levelId : solution.start?.levelId ?? solution.levelId;
+export const solutionCrossesScenes = (solution: SavedSolution): boolean => solutionStartId(solution) !== solution.levelId ||
+  parseOperations(solution.actions).some(operation => operation.command === 'EXIT' || operation.command === 'HINT' || operation.command === 'ENTER' && operation.target !== solution.levelId);
 
 export function solutionFile(solutions: SavedSolution[]) {
   const starts: Record<string, NonNullable<SavedSolution['start']>> = {}, references = new Map<NonNullable<SavedSolution['start']>, string>();

@@ -1,4 +1,4 @@
-import { operationLabel, parseSolutionFile, savedSolutions, solutionFile, solutionStartId, SolutionRecording, SolutionReplay, type SavedSolution } from './solutions';
+import { operationLabel, parseSolutionFile, savedSolutions, solutionCrossesScenes, solutionFile, solutionStartId, SolutionRecording, SolutionReplay, type SavedSolution } from './solutions';
 import type { Operation, SimulationCheckpoint } from './editor-model';
 import type { Dataset } from './types';
 import type { Session } from './session';
@@ -24,11 +24,13 @@ export class SolutionPanel {
   private personal: SavedSolution[] = [];
   private recording?: SolutionRecording;
   private readonly storageKey = 'maxwell3d-solutions-v2';
+  private readonly levelNames = new Map<string, string>();
 
   get active(): boolean { return !!this.replay; }
   get isRecording(): boolean { return !!this.recording; }
 
   constructor(readonly data: Dataset, private hooks: ReplayHooks) {
+    data.levels.forEach(level => this.levelNames.set(level.id, level.displayName ?? level.label));
     this.dialog.id = 'solutions-dialog'; this.dialog.className = 'solutions-dialog';
     this.dialog.setAttribute('aria-label', '已保存的解法');
     this.dialog.innerHTML = `<div class="solution-heading"><h2>已保存的解法</h2><button id="solutions-close" aria-label="关闭解法列表">×</button></div><div class="solution-library-actions"><button id="solution-record">从当前场景开始录制</button><button id="solution-import">导入回放</button><input id="solution-file" type="file" accept="application/json,.json" hidden/></div><p id="solution-recording" role="status"></p><p id="solutions-count"></p><div id="solutions-list"></div><p class="solution-note">关内路线从关卡初始布局开始。跨场景路线保留起点存档及入口准备过程。录制期间每次通关自动保存；回放独立运行，退出后恢复游玩进度。</p>`;
@@ -100,7 +102,8 @@ export class SolutionPanel {
       const button = document.createElement('button'); button.className = 'solution-entry'; button.dataset.solution = solution.levelId;
       button.setAttribute('aria-current', String(solution.levelId === currentId));
       const label = document.createElement('strong'); label.textContent = solution.label;
-      const detail = document.createElement('span'); detail.textContent = `${solution.expected.moves} 步 · ${solution.expected.pushes} 次推动 · ${solutionStartId(solution) !== solution.levelId ? '跨场景路线' : solution.start ? '含起点存档' : '关内路线'}`;
+      const progress = solution.start && ('session' in solution.start ? solution.start.session.solved : solution.start.solved);
+      const detail = document.createElement('span'); detail.textContent = `${solution.expected.moves} 步 · ${solution.expected.pushes} 次推动 · ${solutionCrossesScenes(solution) ? '跨场景路线' : solution.start ? '含起点存档' : '关内路线'}${progress?.length ? ` · 起点已完成 ${progress.length} 关` : ''}`;
       button.append(label, detail); button.onclick = () => { this.dialog.close(); void this.start(solution); };
       const row = document.createElement('div'); row.className = 'solution-library-row'; row.append(button); list.append(row);
       if (this.personal.includes(solution)) {
@@ -122,9 +125,9 @@ export class SolutionPanel {
 
   private render(): void {
     const replay = this.replay; if (!replay) return;
-    this.el('solution-title').textContent = `${replay.solution.label} · ${replay.solution.entryStep && replay.cursor < replay.solution.entryStep ? '入口准备' : '解法回放'}`;
+    this.el('solution-title').textContent = `${replay.solution.label} · ${solutionStartId(replay.solution) !== replay.solution.levelId && replay.solution.entryStep && replay.cursor < replay.solution.entryStep ? '入口准备' : '解法回放'}`;
     const operation = replay.operations[replay.cursor - 1];
-    this.el('solution-position').textContent = `${replay.cursor} / ${replay.operations.length}${this.busy ? ' · 结算中' : replay.finished ? replay.passed ? ' · 已通关' : ' · 验证失败' : operation ? ` · ${operationLabel(operation)}${replay.accepted ? '' : ' · 被阻挡'}` : ' · 初始状态'}`;
+    this.el('solution-position').textContent = `${replay.cursor} / ${replay.operations.length}${this.busy ? ' · 结算中' : replay.finished ? replay.passed ? ' · 已通关' : ' · 验证失败' : operation ? ` · ${operationLabel(operation)}${operation.target ? ` ${this.levelNames.get(operation.target) ?? ''}` : ''}${replay.accepted ? '' : ' · 被阻挡'}` : ' · 初始状态'}`;
     const source = this.el<HTMLAnchorElement>('solution-source'); source.hidden = !replay.solution.source; if (replay.solution.source) source.href = replay.solution.source;
     this.el('solution-play').textContent = this.playing ? '暂停' : replay.finished ? '重播' : '播放';
     this.el('solution-play').setAttribute('aria-pressed', String(this.playing));
@@ -133,7 +136,7 @@ export class SolutionPanel {
     const progress = this.el<HTMLInputElement>('solution-progress'); progress.max = String(replay.operations.length); progress.value = String(replay.cursor); progress.disabled = this.busy;
     const sequence = this.el('solution-actions'); sequence.replaceChildren();
     replay.operations.forEach((action, i) => {
-      const step = document.createElement('button'); step.textContent = operationLabel(action); step.title = `第 ${i + 1} 次操作${action.target ? ` · ${action.target}` : ''}`;
+      const step = document.createElement('button'); step.textContent = operationLabel(action); step.title = `第 ${i + 1} 次操作${action.target ? ` · ${this.levelNames.get(action.target) ?? ''}` : ''}`;
       step.setAttribute('aria-label', step.title); step.setAttribute('aria-current', String(i === replay.cursor - 1)); step.disabled = this.busy;
       step.onclick = () => { this.pause(); void this.seek(i + 1); }; sequence.append(step);
     });

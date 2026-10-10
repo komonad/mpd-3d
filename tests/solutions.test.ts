@@ -8,9 +8,9 @@ import type { Dataset, Level } from '../src/types';
 
 const data: Dataset | undefined = fs.existsSync('public/levels.local.json') ? JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) : undefined;
 
-test('saved solution identifiers are unique and worlds 1 and 2 include every main room', () => {
+test('saved solution identifiers are unique and worlds 1 through 3 include every main room', () => {
   assert.equal(new Set(savedSolutions.map(s => s.levelId)).size, savedSolutions.length);
-  for (const world of [1, 2]) assert.deepEqual(savedSolutions.filter(s => s.label.startsWith(`${world}-`)).map(s => s.label), Array.from({ length: 20 }, (_, i) => `${world}-${i + 1}`));
+  for (const world of [1, 2, 3]) assert.deepEqual(savedSolutions.filter(s => s.label.startsWith(`${world}-`)).map(s => s.label), Array.from({ length: 20 }, (_, i) => `${world}-${i + 1}`));
 });
 
 test('every saved solution completes through the room-session simulation', { skip: !data }, () => {
@@ -37,6 +37,18 @@ for (const label of ['1-11', '7-1', '3-1', '2-1']) {
     assert.throws(() => replay.seek(-1)); assert.throws(() => replay.seek(replay.operations.length + 1)); assert.throws(() => replay.seek(0.5));
   });
 }
+
+test('seeking 3-13 reconstructs shortcut directions, cached rooms, cut baselines and progress', { skip: !data }, () => {
+  const solution = savedSolutions.find(s => s.label === '3-13')!, replay = new SolutionReplay(data!, solution);
+  const expected = new SolutionReplay(data!, solution);
+  while (expected.cursor < 62) expected.advance();
+  replay.seek(replay.operations.length); assert.equal(replay.passed, true);
+  replay.seek(62); assert.deepEqual(replay.simulation.checkpoint(), expected.simulation.checkpoint());
+  assert.equal(replay.simulation.apply('UNDO'), true); assert.equal(expected.simulation.apply('UNDO'), true);
+  assert.deepEqual(replay.simulation.checkpoint(), expected.simulation.checkpoint());
+  assert.equal(replay.simulation.session.current.levelId, '83e5acbe');
+  replay.seek(0); assert.deepEqual(replay.simulation.checkpoint(), new SolutionReplay(data!, solution).simulation.checkpoint());
+});
 
 const block = (x: number, y: number, temperature: -1 | 0 | 1 | 2 = 0) => ({ x, y, temperature, edges: 0x55, storesHeat: true, fixed: false });
 const room = (id: string): Level => ({ id, label: id, width: 8, height: 6, category: 'main', cells: [], players: [{ x: 1, y: 2 }], goals: [], tail: [0] });
