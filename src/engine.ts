@@ -8,11 +8,27 @@ export { directions, edge, opposite, positionKey } from './topology';
 export const cloneState = (state: State): State => { const { turnFrames: _, ...rest } = state; return structuredClone(rest); };
 export const canMoveDemon = (player: State['players'][number]): boolean => player.temperature !== 1 && player.awake !== false;
 
+export function exposeOpenWelds(level: Pick<Level, 'width' | 'height'>, state: State): void {
+  const lookup = new Map(state.cells.filter(c => c.container === undefined).map(c => [`${c.x},${c.y}`, c]));
+  const pistonKeys = new Set(state.pistons?.flatMap(p => [p.baseKey, p.headKey]));
+  for (const c of state.cells) {
+    if (c.container !== undefined || pistonKeys.has(c.key)) continue;
+    for (const [dir, d] of directions.entries()) {
+      if (edge(c, dir) !== 0) continue;
+      const x = c.x + d.x, y = c.y + d.y;
+      if (x < 0 || y < 0 || x >= level.width || y >= level.height) continue;
+      const neighbor = lookup.get(`${x},${y}`);
+      if (neighbor && (pistonKeys.has(neighbor.key) || edge(neighbor, opposite(dir)) === 0)) continue;
+      c.edges |= 3 << (dir * 2);
+    }
+  }
+}
+
 export function initialState(level: Level, solved: Set<string> = new Set(), outside: Temperature = 0): State {
   const cells = level.cells.map((c, key) => ({ ...structuredClone(c), ...(c.portal && solved.has(c.portal.target) ? c.portal.after : {}), key }));
   const players = level.players.map(p => ({ ...p, temperature: p.temperature ?? 0 }));
   const state: State = { levelId: level.id, cells, players, outside, moves: 0, pushes: 0, solved: false, frozen: players.every(p => !canMoveDemon(p)), pistons: structuredClone(level.pistons ?? []), phase: 'ready', transient: true };
-  syncExteriorTemperature(level, state); return state;
+  exposeOpenWelds(level, state); syncExteriorTemperature(level, state); return state;
 }
 
 export function bodies(cells: Cell[], pistons: State['pistons'] = []): Cell[][] {

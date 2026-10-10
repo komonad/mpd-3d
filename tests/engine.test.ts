@@ -38,6 +38,15 @@ test('connected cells with absent internal edges move as one rigid body', () => 
   assert.deepEqual(next.cells.map(c => c.x), [3, 4]); assert.equal(next.players[0].x, 2);
   assert.deepEqual(s.cells.map(c => c.x), [2, 3]);
 });
+
+test('unpaired absent edges facing the board become adhesive while internal welds remain connected', () => {
+  const l = fixture([block(2, 2, 0, 0x41), block(3, 2, 0, 0x50), block(4, 3)], [{ x: 1, y: 2 }], []), state = initialState(l);
+  assert.equal(state.cells[0].edges >> 2 & 3, 3); assert.equal(state.cells[1].edges >> 2 & 3, 3);
+  assert.equal(state.cells[0].edges >> 4 & 3, 0); assert.equal(state.cells[1].edges & 3, 0);
+  const pushed = move(l, state, 2)!; assert.ok(bodies(pushed.cells).some(group => group.length === 3));
+  assert.equal(move(l, pushed, 2)!.cells[2].x, 5);
+  assert.equal(l.cells[0].edges, 0x41);
+});
 test('one fixed cell anchors the entire connected body', () => {
   const l = fixture([block(2, 2, 0, 0x45), block(3, 2, 0, 0x54, true)]), s = initialState(l);
   assert.equal(move(l, s, 2), null);

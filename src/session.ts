@@ -1,4 +1,4 @@
-import { availablePortals, canMoveDemon, cloneState, directions, edge, initialState, opposite, portalPlayers, syncExteriorTemperature } from './engine';
+import { availablePortals, canMoveDemon, cloneState, directions, edge, exposeOpenWelds, initialState, opposite, portalPlayers, syncExteriorTemperature } from './engine';
 import type { Cell, Dataset, Demon, Direction, Level, State, World } from './types';
 import { depth, descendants } from './topology';
 import { portalUnlocked } from './level-labels';
@@ -53,12 +53,13 @@ export function completeHierarchy(data: Dataset, session: Session): Session {
   const definitions = new Map(data.levels.map(l => [l.id, l]));
   const restorePortals = (state: State): State => {
     const source = definitions.get(state.levelId); if (!source) return state;
-    return { ...state, cells: state.cells.map(cell => {
+    const restoredState = { ...state, cells: state.cells.map(cell => {
       const definition = source.cells[cell.key]; if (!definition) return cell;
       const restored = { ...cell }; delete restored.portal;
       if (definition.portal) restored.portal = structuredClone(definition.portal);
       return restored;
     }) };
+    exposeOpenWelds(source, restoredState); return restoredState;
   };
   const restoreRooms = (rooms: Record<string, State>) => Object.fromEntries(Object.entries(rooms).map(([id, state]) => [id, restorePortals(state)]));
   return { ...session, current: restorePortals(session.current),

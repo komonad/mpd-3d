@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "solutions": [
     {
       "levelId": "79c615b0",
@@ -214,41 +214,224 @@
     {
       "levelId": "215c0725",
       "label": "2-1",
-      "actions": "R5",
-      "origin": "search",
+      "origin": "video",
+      "start": {
+        "levelId": "6c1848b0"
+      },
+      "actions": "R U2 ENTER(215c0725) R2 D R2 L2 U2 R2 L3 R4 D R2 U L6 D R2 D R U R2",
+      "entryStep": 4,
       "expected": {
-        "moves": 5,
-        "pushes": 4
-      }
+        "moves": 36,
+        "pushes": 12
+      },
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/"
     },
     {
       "levelId": "13b17116",
       "label": "2-2",
-      "actions": "L U2 R2 U R D2 L D2 R3",
+      "actions": "R U R2 D L U L U2 R D R D2 L2 U2 R D2 L U L2 U R U R D2 L2 D R D R4",
       "origin": "search",
       "expected": {
-        "moves": 15,
-        "pushes": 7
+        "moves": 41,
+        "pushes": 12
+      }
+    },
+    {
+      "levelId": "e80e6019",
+      "label": "2-3",
+      "actions": "R U R2 D L R U3 L D2 R D2 L2 U L U R U2 L D2 L D R U R9 D2",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 42,
+        "pushes": 18
+      }
+    },
+    {
+      "levelId": "68241505",
+      "label": "2-4",
+      "actions": "U D2 R2 U L U2 R3 D L2 R3 D2 L2 R2 U L U L D3 U L4 U2 R3 U R D3 L4 D R D R U3 L U2 R D3 L D R2 L U4 R2 D",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 76,
+        "pushes": 24
+      }
+    },
+    {
+      "levelId": "0a113c1f",
+      "label": "2-5",
+      "actions": "D R3 U R D4 U3 L3 D2 L D R3 L2 U3 L D R D2 L2 U R4 U2 L2 U R D R2 U2 L D R D L3 U L D2 R D L R3 U R2 D L3 R U2 L3 D3 L2 U R D R U2 D2 R3 U L D L U2",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 103,
+        "pushes": 33
+      }
+    },
+    {
+      "levelId": "d07f4968",
+      "label": "2-6",
+      "actions": "U R2 U2 R2 U2 L3 R2 D R D L2 R D4 L2 U R D R U4 L U L3 D R5 U R D L7 D U R4 D4 L5 U R5 U4 R3 L6 U L D L D2 R U L U R7 L5 U R4 D2 R2 D6 U6 L U D R D6 L3",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 145,
+        "pushes": 65
+      }
+    },
+    {
+      "levelId": "f4df7bdf",
+      "label": "2-7",
+      "actions": "L2 D2 R U2 UNDO L U R6 L2 D2 L2 D L U2 L U R8 U R2 D U L6 D3 L U L U R6 U R2 D R D2 L2 R2 U2 L9 U L D R10 D2 L U R U L8 U L D R8 D3 L3 U R2 D R U2 R U L7 U L D2 R D2 L2 U2 R U2 L2 D R8 U R D3 U2 L6 D3 L U2 L U R7 U R D2 R D L4",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 203,
+        "pushes": 88
       }
     },
     {
       "levelId": "621419ea",
       "label": "2-8",
-      "actions": "R2 D R2 D R U R U D L U L U D R U L D2 L2 U2 R2 U R D2 R D L2",
-      "origin": "search",
+      "actions": "R2 D R2 D R U2 D R U L2 U2 R D3 L3 U2 R2 U R D2 R D L2",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
       "expected": {
         "moves": 35,
-        "pushes": 13
+        "pushes": 14
+      }
+    },
+    {
+      "levelId": "1435f49f",
+      "label": "2-9",
+      "actions": "U R5 U R2 D L6 D L2 U R3 L D R D R3 D R2 U L5 U2 R3 U R2 D L5 D2 R U L U R5 L5 D L2 U R5 U R2 D L5 D L2 D R7",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 98,
+        "pushes": 50
       }
     },
     {
       "levelId": "192f2ce1",
       "label": "2-10",
-      "actions": "U2 D2 R4 U R L3 D L U2 D R U R U R",
-      "origin": "search",
+      "actions": "R4 U R L D L4 U2 D2 R4 U L2 U D2 L U2 R2 U R",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
       "expected": {
-        "moves": 23,
+        "moves": 33,
         "pushes": 12
+      }
+    },
+    {
+      "levelId": "68ae7592",
+      "label": "2-11",
+      "actions": "D U R3 U R D L3 D R5 U R2 D L5 U L2 D R5 U R2 D L R U R U2 L D R D L2 D L U UNDO2 U2 L R D2 L U",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 60,
+        "pushes": 25
+      }
+    },
+    {
+      "levelId": "00ab1e70",
+      "label": "2-12",
+      "actions": "L D2 L U L U2 R8 D3 R2 U L D L U R2 U2 L7 D2 L3 U2 R D L D R2 L2 U2 R8 D3 L U R3 U2 L7 D2 L3 U2 R D L D R3 U R2 D",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1paxCzrE4M/",
+      "expected": {
+        "moves": 97,
+        "pushes": 42
+      }
+    },
+    {
+      "levelId": "e25aeb7a",
+      "label": "2-13",
+      "actions": "L U3 R D3 L D R6 L6 U6 R4 D R U R D U L4 D R3 U R D U L5 D2 L D R2 U2 R4 D L4 D4 R4 U3 R2 U R D",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 88,
+        "pushes": 25
+      }
+    },
+    {
+      "levelId": "3b80a1f9",
+      "label": "2-14",
+      "actions": "L U2 R D R U D2 L D L2 U R3 L D R D L U D L U L D U2 D R3 L D R L U3 D L D U R3 D2",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 50,
+        "pushes": 50
+      }
+    },
+    {
+      "levelId": "4e6fb743",
+      "label": "2-15",
+      "actions": "U4 R6 D R D L5 U L UNDO U L D L D3 R U L U3 R3 D R4 U R D2 L5 U2 L3 D R6 U R D R D2",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 67,
+        "pushes": 22
+      }
+    },
+    {
+      "levelId": "a679896b",
+      "label": "2-16",
+      "actions": "D R2 L U R4 D R2 UNDO L U R D R3 U R L R3 U R U R",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 28,
+        "pushes": 28
+      }
+    },
+    {
+      "levelId": "ce9ce823",
+      "label": "2-17",
+      "actions": "L R2 U R U R4 U2 L U L D2 R D L4 U L D3 R U2 R3 D3 R2 U L U2 R D L D2 L U2 R U L4 U L D2 L U L6 U4 R D3 L D R5 U D R U R D L4 D3 L2 U2 L U R10 U R U R2 D L4 R5 U3 D L2 U L D3 R3 D4 L U2 R U L3 U L2 U L R U4 L2 D",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 167,
+        "pushes": 58
+      }
+    },
+    {
+      "levelId": "bd8dabb6",
+      "label": "2-18",
+      "actions": "L U3 L D2 U2 R3 D L3 R2 UNDO3 R2 D3 U L2 D L2 U R3 D R U2 D4 L U2 R U L2 D L U R2 U3 R D L D5 R3 U L3 D L3 U R D R U3 D L2 U4 R2 D L U L D R6 D2 R2",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 103,
+        "pushes": 26
+      }
+    },
+    {
+      "levelId": "c4fc4564",
+      "label": "2-19",
+      "actions": "L4 U D2 U L2 D L D R2 L D2 R U4 L2 U2 R L U R6 UNDO3 D L U2 R4 L D R L4 D2 R6 L2 U3 R D3 L D R5",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 72,
+        "pushes": 72
+      }
+    },
+    {
+      "levelId": "41d7e33b",
+      "label": "2-20",
+      "actions": "R U R4 D L5 D L U3 D R7 D3 L U2 R U L6 D L U R6 D4 L2 U R D R U2 R U L D2 L U2 L U R D R U3 R U L D6 L3 U R2 D R U6 R U L U L D2 U L2 R D L D R U R D R D L R D2 L U R U3 L3 D R U R D2 R D R D L3 D L4 U2 R4 U R2 D U L2 D R5 D R U3",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV14ahxzLEsA/",
+      "expected": {
+        "moves": 174,
+        "pushes": 63
       }
     },
     {
@@ -409,16 +592,6 @@
       "expected": {
         "moves": 2,
         "pushes": 0
-      }
-    },
-    {
-      "levelId": "8048c0fc",
-      "label": "7-15",
-      "actions": "D R D R2 D R2 U2 D2 L U L U R2",
-      "origin": "search",
-      "expected": {
-        "moves": 18,
-        "pushes": 7
       }
     },
     {

@@ -288,13 +288,6 @@ test('discovering original 3-12 enables that same numbered shortcut on the world
   assert.equal(enterPortal(data, restored, target.id)!.current.levelId, target.id);
 });
 
-test('original 2-01 reaches its goal after balancing the rigid pair with the hot cells', { skip: !fs.existsSync('public/levels.local.json') }, () => {
-  const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, l = data.levels.find(l => l.label === '2-01')!;
-  let state = initialState(l);
-  for (let i = 0; i < 5; i++) state = move(l, state, 2)!;
-  assert.equal(state.solved, true); assert.equal(state.moves, 5); assert.equal(state.pushes, 4); assert.equal(state.players[0].temperature, 0);
-});
-
 test('original 3-01 uses re-entry to reposition the demon while preserving the puzzle layout', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as Dataset, l = data.levels.find(l => l.label === '3-01')!;
   let session = createSession(l, ['9a498c50', '6c1848b0']);

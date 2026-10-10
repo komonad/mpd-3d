@@ -10,6 +10,7 @@ export interface EditorProject { version: 1; levels: Level[]; currentId: string;
 export interface CheckResult extends Checkpoint { actual: unknown; passed: boolean }
 export interface ReplayRow extends Operation { step: number; accepted: boolean; state: State; checks: CheckResult[] }
 export interface ReplayResult { rows: ReplayRow[]; checks: CheckResult[]; passed: boolean; session: Session }
+export interface SimulationCheckpoint { session: Session; undo: Session[]; redo: Session[] }
 const moves: Partial<Record<Command, Direction>> = { L: 0, D: 1, R: 2, U: 3 };
 const commands: Record<string, Command> = { LEFT: 'L', DOWN: 'D', RIGHT: 'R', UP: 'U', '←': 'L', '↓': 'D', '→': 'R', '↑': 'U',
   L: 'L', D: 'D', R: 'R', U: 'U', RESET: 'RESET', '!': 'RESET', UNDO: 'UNDO', Z: 'UNDO', REDO: 'REDO', Y: 'REDO',
@@ -141,7 +142,12 @@ export class Simulation {
   session: Session;
   private undo: Session[] = [];
   private redo: Session[] = [];
-  constructor(readonly data: Dataset, level: Level) { this.session = selectSession(data, level); }
+  constructor(readonly data: Dataset, level: Level, checkpoint?: SimulationCheckpoint) {
+    this.session = checkpoint ? structuredClone(checkpoint.session) : selectSession(data, level);
+    this.undo = checkpoint ? structuredClone(checkpoint.undo) : [];
+    this.redo = checkpoint ? structuredClone(checkpoint.redo) : [];
+  }
+  checkpoint(): SimulationCheckpoint { return structuredClone({ session: this.session, undo: this.undo, redo: this.redo }); }
   get level(): Level { return this.data.levels.find(l => l.id === this.session.current.levelId)!; }
   get canUndo(): boolean { return this.undo.length > 0; }
   get canRedo(): boolean { return this.redo.length > 0; }

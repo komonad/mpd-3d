@@ -1,11 +1,11 @@
 import fs from 'node:fs';
-import { savedSolutions, SolutionReplay, type SavedSolution } from '../src/solutions.ts';
+import { parseSolutionFile, savedSolutions, SolutionReplay } from '../src/solutions.ts';
 import type { Dataset } from '../src/types.ts';
 
 try {
   const data: Dataset = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8'));
   const input = process.argv[2];
-  const solutions: SavedSolution[] = input ? JSON.parse(fs.readFileSync(input, 'utf8')).solutions : savedSolutions;
+  const solutions = input ? parseSolutionFile(fs.readFileSync(input, 'utf8'), data) : savedSolutions;
   if (!Array.isArray(solutions) || !solutions.length) throw new Error('解法目录为空。');
   let failures = 0;
   for (const solution of solutions) {

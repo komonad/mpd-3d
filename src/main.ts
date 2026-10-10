@@ -3,7 +3,7 @@ import { GameScene } from './scene';
 import { LevelEditor } from './editor';
 import { SolutionPanel } from './solution-panel';
 import { laboratory } from './laboratory';
-import { cloneState, initialState, move, syncExteriorTemperature } from './engine';
+import { cloneState, exposeOpenWelds, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
 import { compareLevels, levelIdentifier, levelLabels } from './level-labels';
 import { turnPlayback } from './turn-playback';
@@ -166,6 +166,7 @@ function cancelPlayback(): void { playback++; resolving = false; queuedDirection
 function load(id: string, outside: Temperature = 0, existing?: State, preserveCamera = false): void {
   const found = levelsById.get(id); if (!found) { notify('这个入口通向当前版本范围之外的场景。'); return; }
   cancelPlayback(); level = found; state = existing ? cloneState(existing) : initialState(level, solved, outside);
+  exposeOpenWelds(level, state);
   syncExteriorTemperature(level, state);
   recordState(session, state, level); solved = new Set(session.solved);
   if (level.worldId) selectedWorld = level.worldId;
@@ -178,6 +179,7 @@ function selectLevel(id: string): void {
   const found = levelsById.get(id); if (!found) return;
   if (found.worldId && !unlockedWorlds(data, solved).some(w => w.id === found.worldId)) { notify('这个世界的关卡数据尚未导入。'); return; }
   remember(); session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
+  if (solutionPanel?.isRecording) { solutionPanel.beginRecording(); notify('快速跳转后，录制从当前场景的新起点继续。'); }
 }
 async function step(direction: Direction): Promise<void> {
   if (solutionPanel?.active) return;
@@ -189,6 +191,7 @@ async function step(direction: Direction): Promise<void> {
   const next = move(level, state, direction); if (!next) return;
   remember(); const pushing = next.pushes > state.pushes; state = next;
   recordState(session, state, level); solved = new Set(session.solved);
+  solutionPanel.record({ command: (['L', 'D', 'R', 'U'] as const)[direction] }, session);
   playTone(state.solved ? 'solve' : pushing ? 'push' : 'move');
   const token = ++playback;
   resolving = state.solved;
@@ -223,14 +226,14 @@ async function step(direction: Direction): Promise<void> {
     resolving = false;
     renderHud();
   }
-  if (state.solved && canExit()) { const next = exitLevel(data, session); if (next) { remember(); session = next; load(next.current.levelId, next.current.outside, next.current); notify('关卡完成，已返回上层场景。'); } }
+  if (state.solved && canExit()) { const next = exitLevel(data, session); if (next) { remember(); session = next; load(next.current.levelId, next.current.outside, next.current); solutionPanel.record({ command: 'EXIT' }, session); notify('关卡完成，已返回上层场景。'); } }
   flushInput();
 }
 function flushInput(): void { if (!resolving && queuedDirection !== undefined) { const direction = queuedDirection; queuedDirection = undefined; void step(direction); } }
 function restore(s: Snapshot): void { const sameLevel = level.id === s.current.levelId; session = structuredClone(s); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current, sameLevel); }
-function undo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('UNDO'); return; } const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); playTone('undo'); }
-function redo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('REDO'); return; } const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); playTone('move'); }
-function reset(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('RESET'); return; } if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); notify('关卡已重置，按 Z 可以撤销。'); }
+function undo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('UNDO'); return; } const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); solutionPanel.record({ command: 'UNDO' }, session); playTone('undo'); }
+function redo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('REDO'); return; } const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); solutionPanel.record({ command: 'REDO' }, session); playTone('move'); }
+function reset(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('RESET'); return; } if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); solutionPanel.record({ command: 'RESET' }, session); notify('关卡已重置，按 Z 可以撤销。'); }
 function enter(targetId?: string): void {
   if (solutionPanel?.active) return;
   if (editor?.active) { editor.command('ENTER', targetId); return; }
@@ -241,6 +244,7 @@ function enter(targetId?: string): void {
     return;
   }
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
+  solutionPanel.record({ command: 'ENTER', target: next.current.levelId }, session);
 }
 function exit(): void {
   if (solutionPanel?.active) { solutionPanel.close(); return; }
@@ -250,6 +254,7 @@ function exit(): void {
   const next = exitLevel(data, session);
   if (!next) return;
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
+  solutionPanel.record({ command: 'EXIT' }, session);
 }
 function nextLevel(): void {
   const main = data.levels.filter(l => l.category === category && (category === 'lab' || l.worldId === selectedWorld)).sort(compareLevels), index = main.findIndex(l => l.id === level.id);
@@ -262,6 +267,7 @@ function openHint(): void {
 function startHint(): void {
   if (resolving || !level.hintId) return; const next = enterHint(data, session, level.hintId); if (!next) return;
   $<HTMLDialogElement>('#hint-dialog').close(); remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
+  solutionPanel.record({ command: 'HINT' }, session);
 }
 function requestHint(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('HINT'); return; } if (!resolving) level.hintId ? startHint() : openHint(); }
 
@@ -421,6 +427,8 @@ async function start(): Promise<void> {
       },
       show: showSolution,
       cancelMotion: cancelPlayback,
+      capture: () => ({ session: snapshot(), undo: undoHistory, redo: redoHistory }),
+      notify,
       end: () => {
         if (!replayBackup) return;
         session = replayBackup.session; undoHistory = replayBackup.undo; redoHistory = replayBackup.redo;
