@@ -366,7 +366,7 @@ function bind(): void {
 
 async function start(): Promise<void> {
   try {
-    const response = await fetch('/levels.local.json'); if (!response.ok) throw new Error('关卡数据尚未导入。请在项目目录运行 npm run import:levels。');
+    const response = await fetch(`${import.meta.env.BASE_URL}levels.local.json`); if (!response.ok) throw new Error('关卡数据尚未导入。请在项目目录运行 npm run import:levels。');
     data = await response.json(); data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
     editor = new LevelEditor(data, scene, () => load(session.current.levelId, session.current.outside, session.current, true));

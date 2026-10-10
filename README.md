@@ -20,6 +20,17 @@ node scripts/import-levels.mjs "D:\SteamLibrary\steamapps\common\Maxwell's puzzl
 
 The importer reads the installation without changing it. The generated `public/levels.local.json` contains local game data and is excluded from Git. Original level design and game assets belong to muratsubo Games. No original executable, music, or textures are included in the source project.
 
+## Web deployment
+
+The static web build runs at [komonad.github.io/mpd-3d](https://komonad.github.io/mpd-3d/). Build and publish from a checkout with imported level data:
+
+```powershell
+npm run build:pages
+npm run publish:pages
+```
+
+GitHub Pages serves the root of the `gh-pages` branch. That branch contains compiled assets and the playable level catalogue; `master` retains the source project. Asset and catalogue URLs respect the `/mpd-3d/` base path. Each deployment includes `version.json` with its source revision. Publishing preserves the deployment branch history and does not switch the source checkout.
+
 ## Controls
 
 | Action | Input |
