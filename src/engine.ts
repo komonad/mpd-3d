@@ -100,8 +100,6 @@ export function transferHeat(level: Level, state: State): void {
       });
       for (const key of links.get(c.key) ?? []) if (!seen.has(key)) { seen.add(key); component.push(byKey.get(key)!); }
     }
-    // Demon-only components retain their individual temperatures until they contact a material or the exterior.
-    if (!outside && component.every(c => c.key < 0)) continue;
     // Demons and transparent cells conduct heat without contributing to its balance.
     const sum = component.reduce((s, c) => s + (c.storesHeat && !infinite.has(c.key) && c.temperature !== 2 ? c.temperature * (c.heatCapacity ?? 1) : 0), 0);
     const retentive = component.some(c => c.storesHeat && !infinite.has(c.key) && c.temperature === 2);
@@ -135,10 +133,10 @@ export function move(level: Level, state: State, direction: Direction): State | 
   }
   let didMove = false, pushed = false;
   const order = next.players.map((p, i) => ({ i, distance: p.x * d.x + p.y * d.y })).sort((a, b) => b.distance - a.distance || a.i - b.i);
-  const movedCells = new Set<number>();
+  const movedCells = new Set<number>(), movedPlayers = new Set<number>();
   for (const { i: index } of order) {
     const player = next.players[index];
-    if (!canMoveDemon(player)) continue;
+    if (!canMoveDemon(player) || movedPlayers.has(index)) continue;
     const x = player.x + d.x, y = player.y + d.y;
     if (x < 0 || y < 0 || x >= level.width || y >= level.height) continue;
     const target = next.cells.find(c => c.x === x && c.y === y);
@@ -146,7 +144,7 @@ export function move(level: Level, state: State, direction: Direction): State | 
     else {
       const plan = pushPlan(level, next, x, y, direction, false, index); if (!plan) continue;
       if ([...plan.cells].some(key => movedCells.has(key))) continue;
-      applyPush(next, plan, direction); plan.cells.forEach(key => movedCells.add(key)); if (plan.cells.size) pushed = true;
+      applyPush(next, plan, direction); plan.cells.forEach(key => movedCells.add(key)); plan.players.forEach(i => movedPlayers.add(i)); if (plan.cells.size) pushed = true;
     }
     player.x = x; player.y = y; didMove = true;
   }

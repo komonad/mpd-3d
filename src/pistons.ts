@@ -1,5 +1,5 @@
 import type { Cell, Direction, Level, Piston, State, TurnFrame } from './types';
-import { bodies, directions, positionKey, transferHeat } from './engine';
+import { bodies, canMoveDemon, directions, positionKey, transferHeat } from './engine';
 import { actuateBoundary } from './boundary-pistons';
 
 export function pushPlan(level: Level, state: State, x: number, y: number, direction: Direction, forcePlayers = false, ignoredPlayer = -1, ignoredCells = new Set<number>()): { cells: Set<number>; players: Set<number> } | null {
@@ -20,7 +20,7 @@ export function pushPlan(level: Level, state: State, x: number, y: number, direc
     for (let i = 0; i < state.players.length; i++) {
       const p = state.players[i];
       if (i === ignoredPlayer || p.x !== tx || p.y !== ty || players.has(i)) continue;
-      if (!forcePlayers) return false;
+      if (!forcePlayers && !canMoveDemon(p)) return false;
       players.add(i); if (!visit(tx + delta.x, ty + delta.y)) return false;
     }
     return true;

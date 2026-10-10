@@ -74,7 +74,7 @@ class MotionPlan {
     for (let i = 0; i < this.state.players.length; i++) {
       const p = this.state.players[i];
       if (i === ignoredPlayer || this.players.has(i) || address(p) !== address(destination)) continue;
-      if (!this.forcePlayers || !this.movePlayer(i)) return null;
+      if ((!this.forcePlayers && !canMoveDemon(p)) || !this.movePlayer(i)) return null;
     }
     return destination;
   }

@@ -23,12 +23,12 @@ test('the demon conducts without storing heat', () => {
   assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]); assert.equal(s.players[0].temperature, 0);
 });
 
-test('isolated demons retain temperature without exchanging stored heat with each other', () => {
+test('isolated demons settle to neutral when their component has no stored heat', () => {
   const l = fixture([], [{ x: 2, y: 2 }, { x: 3, y: 2 }]);
   for (const temperature of [-1, 0, 1, 2] as const) {
     const state = initialState(l); state.players[0].temperature = temperature;
     transferHeat(l, state);
-    assert.deepEqual(state.players.map(p => p.temperature), [temperature, 0]);
+    assert.deepEqual(state.players.map(p => p.temperature), [0, 0]);
   }
 });
 
@@ -38,6 +38,47 @@ test('a retentive demon loses retention when its component contacts neutral mate
   transferHeat(l, state);
   assert.deepEqual(state.players.map(p => p.temperature), [0, 0]);
   assert.equal(state.cells[0].temperature, 0);
+});
+
+const enclosedDemons = (boundary: boolean): Level => {
+  const shape = [[2, 2], [3, 2], [4, 2], [2, 3], [4, 3], [2, 4], [4, 4]];
+  const directions = [[-1, 0], [0, 1], [1, 0], [0, -1]];
+  const cells = shape.map(([x, y]) => {
+    let edges = 0xaa;
+    directions.forEach(([dx, dy], dir) => {
+      if (shape.some(([nx, ny]) => nx === x + dx && ny === y + dy)) edges &= ~(3 << (dir * 2));
+    });
+    return block(x, y, 0, edges);
+  });
+  const level: Level = { ...fixture(cells, [{ x: 3, y: 3 }, { x: 3, y: 4 }], []), width: 9 };
+  if (boundary) {
+    cells.push(block(7, 1, 0, 0xaa));
+    level.pistons = [{ baseKey: 7, headKey: -10007, direction: 2, expanded: false, order: 0, model: 'boundary', head: block(7, 1, 0, 0xaa) }];
+  }
+  return level;
+};
+
+test('demons enclosed by one body vacate its destinations simultaneously', () => {
+  for (const boundary of [false, true]) for (const reverse of [false, true]) {
+    const level = enclosedDemons(boundary), state = initialState(level);
+    if (reverse) state.players.reverse();
+    const next = move(level, state, 2)!;
+    assert.ok(next);
+    assert.deepEqual(next.players.map(p => [p.x, p.y]).sort(), [[4, 3], [4, 4]]);
+    assert.deepEqual(next.cells.slice(0, 7).map(c => [c.x, c.y]), state.cells.slice(0, 7).map(c => [c.x + 1, c.y]));
+    assert.equal(next.moves, 1); assert.equal(next.pushes, 1);
+  }
+});
+
+test('an enclosed inactive demon blocks body translation without partial movement', () => {
+  for (const boundary of [false, true]) for (const asleep of [false, true]) {
+    const level = enclosedDemons(boundary), state = initialState(level);
+    if (asleep) state.players[1].awake = false;
+    else state.players[1].temperature = 1;
+    const before = cloneState(state);
+    assert.equal(move(level, state, 2), null);
+    assert.deepEqual(state, before);
+  }
 });
 test('either insulated face prevents heat conduction', () => {
   const l = fixture([block(2, 2, 1, 0x65), block(3, 2, -1)]), s = initialState(l);
