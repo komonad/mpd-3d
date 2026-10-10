@@ -34,8 +34,9 @@ class MotionPlan {
   readonly cells = new Map<number, Destination>();
   readonly players = new Map<number, Destination>();
   readonly compressed = new Set<number>();
+  readonly extended = new Set<number>();
   private visiting = new Set<number>();
-  constructor(private level: Level, readonly state: State, private direction: Direction, private forcePlayers: boolean, private allowCompression = true) {}
+  constructor(private level: Level, readonly state: State, private direction: Direction, private forcePlayers: boolean, private allowCompression = true, private stationaryCell?: number) {}
 
   private destination(entity: Entity): Destination | null {
     const d = directions[this.direction];
@@ -55,12 +56,12 @@ class MotionPlan {
 
   private resolve(destination: Destination, moving: Set<number>, ignoredPlayer = -1): Destination | null {
     if (destination.x < 0 || destination.y < 0 || destination.x >= this.level.width || destination.y >= this.level.height) return null;
-    let obstacle = this.state.cells.find(c => address(c) === address(destination) && !moving.has(c.key));
+    let obstacle = this.state.cells.find(c => address(c) === address(destination) && !moving.has(c.key) && !this.visiting.has(c.key));
     if (obstacle && this.cells.has(obstacle.key)) obstacle = undefined;
     if (obstacle) {
       const piston = boundaryPiston(this.state, obstacle.key);
       if (piston && this.direction === opposite(piston.direction) && !this.visiting.has(obstacle.key)) {
-        if (this.tryTranslate(obstacle)) obstacle = undefined;
+        if (obstacle.key !== this.stationaryCell && this.tryTranslate(obstacle)) obstacle = undefined;
         else if (!piston.expanded || this.compressed.has(obstacle.key) || this.allowCompression) {
           const trial = this.fork();
           if (piston.expanded) trial.compressed.add(obstacle.key);
@@ -79,17 +80,19 @@ class MotionPlan {
   }
 
   private fork(allowCompression = this.allowCompression): MotionPlan {
-    const trial = new MotionPlan(this.level, this.state, this.direction, this.forcePlayers, allowCompression);
+    const trial = new MotionPlan(this.level, this.state, this.direction, this.forcePlayers, allowCompression, this.stationaryCell);
     this.cells.forEach((destination, key) => trial.cells.set(key, destination));
     this.players.forEach((destination, index) => trial.players.set(index, destination));
-    this.compressed.forEach(key => trial.compressed.add(key)); trial.visiting = new Set(this.visiting);
+    this.compressed.forEach(key => trial.compressed.add(key));
+    this.extended.forEach(key => trial.extended.add(key)); trial.visiting = new Set(this.visiting);
     return trial;
   }
 
   private accept(trial: MotionPlan): void {
     this.cells.clear(); trial.cells.forEach((destination, key) => this.cells.set(key, destination));
     this.players.clear(); trial.players.forEach((destination, index) => this.players.set(index, destination));
-    this.compressed.clear(); trial.compressed.forEach(key => this.compressed.add(key)); this.visiting = trial.visiting;
+    this.compressed.clear(); trial.compressed.forEach(key => this.compressed.add(key));
+    this.extended.clear(); trial.extended.forEach(key => this.extended.add(key)); this.visiting = trial.visiting;
   }
 
   private tryTranslate(cell: Cell): boolean {
@@ -100,16 +103,38 @@ class MotionPlan {
   }
 
   private canTranslate(cell: Cell): boolean {
-    const probe = new MotionPlan(this.level, this.state, this.direction, this.forcePlayers, false);
+    const probe = new MotionPlan(this.level, this.state, this.direction, this.forcePlayers, false, this.stationaryCell);
+    this.players.forEach((destination, index) => probe.players.set(index, destination));
+    probe.visiting = new Set(this.visiting);
+    this.compressed.forEach(key => probe.compressed.add(key));
+    this.extended.forEach(key => probe.extended.add(key));
     return probe.moveCell(cell);
   }
 
   moveCell(cell: Cell): boolean {
+    if (cell.key === this.stationaryCell) return false;
     if (this.cells.has(cell.key)) return true;
     if (this.visiting.has(cell.key)) return false;
+    const translation = this.fork();
+    if (translation.translateCell(cell)) { this.accept(translation); return true; }
+    if (!this.allowCompression) return false;
+    const group = bodies(this.state.cells, this.state.pistons).find(g => g.some(c => c.key === cell.key))!;
+    const extensions = (this.state.pistons ?? []).filter(p => p.model === 'boundary' && !p.expanded && !this.extended.has(p.baseKey) &&
+      this.direction === opposite(p.direction) && group.some(c => c.key === p.baseKey) &&
+      this.state.cells.some(c => c.container === p.baseKey && !group.some(part => part.key === c.key)));
+    for (const piston of extensions) {
+      const trial = this.fork(); trial.extended.add(piston.baseKey);
+      if (trial.translateCell(cell)) { this.accept(trial); return true; }
+    }
+    return false;
+  }
+
+  private translateCell(cell: Cell): boolean {
     const groups = bodies(this.state.cells, this.state.pistons?.map(p => this.compressed.has(p.baseKey) ? { ...p, expanded: false } : p));
     const group = [...groups.find(g => g.some(c => c.key === cell.key))!];
-    if (this.allowCompression && !this.canTranslate(cell)) {
+    if (group.some(c => c.key === this.stationaryCell || c.container !== undefined && this.extended.has(c.container))) return false;
+    const rigid = !this.allowCompression || this.canTranslate(cell);
+    if (!rigid) {
       const candidates = (this.state.pistons ?? []).filter(p => p.model === 'boundary' && p.expanded && !this.compressed.has(p.baseKey) && group.some(c => c.key === p.baseKey) &&
         (this.direction === opposite(p.direction) && cell.key !== p.baseKey || this.direction === p.direction && cell.key === p.baseKey));
       const distance = supportDistances(this.level, this.state, this.direction);
@@ -119,8 +144,8 @@ class MotionPlan {
     const include = (key: number) => { for (const c of groups.find(g => g.some(c => c.key === key)) ?? []) if (!group.some(old => old.key === c.key)) group.push(c); };
     for (let i = 0; i < group.length; i++) {
       const c = group[i];
-      if (cell.container === undefined && c.container !== undefined && boundaryPiston(this.state, c.container)?.direction !== this.direction) include(c.container);
-      descendants(this.state, c.key).cells.forEach(child => include(child.key));
+      if (cell.container === undefined && c.container !== undefined && (rigid || boundaryPiston(this.state, c.container)?.direction !== this.direction)) include(c.container);
+      if (!this.extended.has(c.key)) descendants(this.state, c.key).cells.forEach(child => include(child.key));
     }
     if (group.some(c => c.fixed)) return false;
     const moving = new Set(group.map(c => c.key));
@@ -129,6 +154,7 @@ class MotionPlan {
     group.forEach(c => this.visiting.add(c.key));
     const carriedCells = new Set<number>(), carriedPlayers = new Set<number>();
     for (const c of group) {
+      if (this.extended.has(c.key)) continue;
       const inventory = descendants(this.state, c.key);
       inventory.cells.forEach(child => { if (!moving.has(child.key)) { carriedCells.add(child.key); moving.add(child.key); } });
       inventory.players.forEach(child => carriedPlayers.add(this.state.players.indexOf(child)));
@@ -158,6 +184,10 @@ class MotionPlan {
       const p = this.state.players[index];
       this.players.set(index, { x: p.x + d.x, y: p.y + d.y, container: p.container });
     }
+    for (const key of this.extended) {
+      const base = this.state.cells.find(c => c.key === key)!;
+      for (const child of this.state.cells.filter(c => c.container === key)) this.cells.set(child.key, { x: child.x, y: child.y, container: base.container });
+    }
     group.forEach(c => this.visiting.delete(c.key));
     return true;
   }
@@ -166,13 +196,15 @@ class MotionPlan {
     if (this.players.has(index)) return true;
     const destination = this.destination(this.state.players[index]);
     if (!destination) return false;
+    // A pushing demon vacates its current address before the rigid body occupies it.
+    this.players.set(index, destination);
     const resolved = this.resolve(destination, new Set(), index);
-    if (!resolved) return false;
+    if (!resolved) { this.players.delete(index); return false; }
     this.players.set(index, resolved); return true;
   }
 
   apply(): void {
-    const extended = new Set<number>();
+    const extended = new Set(this.extended);
     for (const c of this.state.cells) if (c.container !== undefined && this.cells.has(c.key) && !this.cells.has(c.container)) {
       const p = boundaryPiston(this.state, c.container), destination = this.cells.get(c.key)!;
       if (p && !p.expanded && destination.container !== c.container && (edge(c, opposite(p.direction)) === 0 || edge(c, opposite(p.direction)) === 3)) extended.add(c.container);
@@ -186,7 +218,7 @@ class MotionPlan {
       if (base.storesHeat && base.temperature === 0) base.temperature = 1;
     }
     for (const piston of this.state.pistons ?? []) {
-      if (piston.model !== 'boundary' || piston.expanded || this.cells.has(piston.baseKey)) continue;
+      if (piston.model !== 'boundary' || piston.expanded || this.cells.has(piston.baseKey) && !extended.has(piston.baseKey)) continue;
       const base = this.state.cells.find(c => c.key === piston.baseKey);
       if (base && extended.has(base.key)) {
         piston.expanded = true;
@@ -228,10 +260,10 @@ export function actuateBoundary(level: Level, state: State, candidate: Piston): 
     if (child && !plan.moveCell(child) || player >= 0 && !plan.movePlayer(player)) {
       // When the load is immovable, the housing can retreat while the load stays in place.
       const fallback = cloneState(state), housing = fallback.cells.find(c => c.key === base.key)!;
-      const inventory = fallback.cells.find(c => c.container === housing.key), demon = fallback.players.find(p => p.container === housing.key);
-      if (inventory) { if (housing.container === undefined) delete inventory.container; else inventory.container = housing.container; }
+      const demon = fallback.players.find(p => p.container === housing.key);
       if (demon) { if (housing.container === undefined) delete demon.container; else demon.container = housing.container; }
       const retreat = new MotionPlan(level, fallback, opposite(piston.direction) as Direction, true);
+      retreat.extended.add(housing.key);
       if (!retreat.moveCell(housing)) return false;
       retreat.apply(); boundaryPiston(fallback, housing.key)!.expanded = true; housing.temperature = 0;
       Object.assign(state, fallback); return true;
@@ -244,10 +276,10 @@ export function actuateBoundary(level: Level, state: State, candidate: Piston): 
     const d = directions[piston.direction];
     const load = trial.cells.find(c => c.container === base.container && c.x === base.x + d.x && c.y === base.y + d.y);
     if (load && (edge(base, piston.direction) === 3 || edge(load, opposite(piston.direction)) === 3 || edge(load, opposite(piston.direction)) === 0)) {
-      const plan = new MotionPlan(level, trial, opposite(piston.direction) as Direction, true);
+      const plan = new MotionPlan(level, trial, opposite(piston.direction) as Direction, true, true, base.key);
       if (!plan.moveCell(load)) {
         if (load.fixed) return false;
-        const advance = new MotionPlan(level, trial, piston.direction, true);
+        const advance = new MotionPlan(level, trial, piston.direction, true, true, load.key);
         if (!advance.moveCell(base)) return false;
         advance.apply(); base.temperature = 0; Object.assign(state, trial); return true;
       }

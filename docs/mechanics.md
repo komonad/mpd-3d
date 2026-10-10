@@ -26,8 +26,20 @@ Entrance label construction at `0x1400582d0` selects the display mode in `0x1400
 
 Piston RTTI exposes a block-property object, an expansion flag at `0xf8`, and an optional contained object at `0x100`. On-grid and in-piston positions are separate native position classes. Piston motion is a relative change between housing and load, with explicit support checks. Active actions follow piston order; passive actions follow mechanical support. The native planner at `0x14006a680` constructs and resolves a dependency graph. The simulator's support-distance planner covers common chains; parity of every branched or cyclic graph remains unverified.
 
+Ordinary pushes attempt translation of the complete loaded body before relative piston motion. Cold actuation reserves the housing while pulling its load; if that pull is blocked, the advancing housing reserves the supported load while storing it. A compressed housing can retreat from supported inventory and extend. Hot expansion keeps contained inventory attached during retreat planning, then exposes it when applying the completed plan. This preserves layered occupancy and the housing's external body connections during dependency lookup. Compound motion treats the pushing demon's source address and the source addresses of dependent moving bodies as vacated.
+
 ## Validation boundaries
 
-Local tests cover MXW parsing, finite and infinite heat capacity, multiple demons, nested inventories, retentive resets at multiple depths, supported piston motion, transitions, and label data. Completion routes cover original `2-1`, `3-1`, `4-1`, `4-2`, and `8-1`. Opening-move checks cover every main room with pistons. Browser checks cover the overworld, worlds 1–9, A, B, hints, undo after automatic exit, hover inventory, free camera orientation, and layout at desktop and mobile sizes.
+Local tests cover MXW parsing, finite and infinite heat capacity, multiple demons, nested inventories, retentive resets at multiple depths, supported piston motion, transitions, and label data. Completion routes cover all numbered rooms in worlds 1–3, world 4 rooms 1–10 and 12–19, and selected later rooms. Opening-move checks cover every main room with pistons. Browser checks cover the overworld, worlds 1–9, A, B, hints, undo after automatic exit, hover inventory, free camera orientation, and layout at desktop and mobile sizes.
+
+World 4 reference tests compare intermediate states with [the numbered-room walkthrough](https://www.bilibili.com/video/BV1Znt3z1EwU/) and [the updated 4-12 walkthrough](https://www.bilibili.com/video/BV1YtnuzmEuG/). Operation indices refer to the saved catalogue routes, including undo operations.
+
+| Room | Video time | Operation | Checkpoint |
+| --- | --- | --- | --- |
+| 4-10 | 218.47 s | 48 | Cold housing advances around a supported L-shaped load and contains its lower cell. |
+| 4-12 | 13.23 s | 58 | A concave transparent frame occupies the demon's source tile during a rightward push. |
+| 4-15 | 404.17 s | 53 | The loaded housing translates with its surrounding concave body. |
+| 4-16 | 417.60 s | 22 | The housing retreats from supported inventory; the heat frame precedes automatic retraction. |
+| 4-17 | 435.37 s | 41 | Cold actuation stores the load without translating the free housing. |
 
 These checks validate the simulator's contracts and selected original puzzles. They do not constitute exhaustive differential testing against the executable.

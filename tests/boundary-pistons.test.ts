@@ -54,6 +54,28 @@ test('a movable housing retreats when the inventory cannot move', () => {
   assert.equal(s.pistons![0].expanded, true);
 });
 
+test('a compressed housing retreats from supported inventory before rejecting a push', () => {
+  for (const direction of [0, 1, 2, 3] as const) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction], reverse = ((direction + 2) % 4) as 0 | 1 | 2 | 3;
+    const side = { x: d.y, y: -d.x }, sideDirection = (direction + 1) % 4, branchDirection = (direction + 3) % 4;
+    const faces = (...open: number[]) => open.reduce((edges, face) => edges & ~(3 << (face * 2)), 0xaa);
+    const l = room([
+      { ...housing(), edges: faces(sideDirection) },
+      { ...block(4, 3, 0, 0), storesHeat: false, edges: faces(direction) },
+      { ...block(4 + d.x, 3 + d.y), storesHeat: false, edges: faces(reverse, branchDirection) },
+      { ...block(4 + d.x - side.x, 3 + d.y - side.y), storesHeat: false, edges: faces(sideDirection) },
+      { ...block(4 - side.x, 3 - side.y), fixed: true },
+      { ...block(4 + side.x, 3 + side.y), edges: faces(branchDirection) },
+    ], [{ ...piston(0), direction }], [{ x: 4 + side.x + d.x, y: 3 + side.y + d.y }]);
+    const s = initialState(l);
+    assert.deepEqual(moveBoundaryDemons(l, s, reverse), { moved: true, pushed: true });
+    assert.deepEqual([s.cells[0].x, s.cells[0].y, s.cells[0].temperature], [4 - d.x, 3 - d.y, -1]);
+    assert.equal(s.pistons![0].expanded, true);
+    assert.deepEqual([s.cells[1].x, s.cells[1].y, s.cells[1].container], [4, 3, undefined]);
+    assert.deepEqual([s.cells[3].x, s.cells[3].y], [4 + d.x - side.x, 3 + d.y - side.y]);
+  }
+});
+
 test('blocks enter stationary compressed pistons while the demon stays outside', () => {
   const l = room([housing(4, 0, true), block(5, 3)], [piston(0)], [{ x: 6, y: 3 }]), s = move(l, initialState(l), 0)!;
   assert.equal(s.cells[0].x, 4); assert.equal(s.cells[1].x, 4); assert.equal(s.cells[1].container, 0);
@@ -181,6 +203,18 @@ test('cold compression pulls a sticky load into the stationary housing', () => {
   const l = room([housing(4, -1, true), { ...block(5, 3), edges: 0x57 }], [piston(0, true)]), s = initialState(l);
   assert.equal(actuateBoundary(l, s, s.pistons![0]), true);
   assert.equal(s.cells[1].x, 4); assert.equal(s.cells[1].container, 0); assert.equal(s.cells[0].temperature, 0);
+});
+
+test('active cold compression stores its load before translating a free housing', () => {
+  for (const direction of [0, 1, 2, 3] as const) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction], reverse = (direction + 2) % 4;
+    const l = room([housing(4, -1), { ...block(4 + d.x, 3 + d.y), storesHeat: false, edges: 0xaa & ~(3 << (reverse * 2)) }], [{ ...piston(0, true), direction }]);
+    const s = initialState(l);
+    assert.equal(actuateBoundary(l, s, s.pistons![0]), true);
+    assert.deepEqual([s.cells[0].x, s.cells[0].y, s.cells[0].temperature], [4, 3, 0]);
+    assert.deepEqual([s.cells[1].x, s.cells[1].y, s.cells[1].container], [4, 3, 0]);
+    assert.equal(s.pistons![0].expanded, false);
+  }
 });
 
 test('adhesion to the moving face permits extension while adhesion to side walls locks it', () => {
@@ -374,7 +408,7 @@ test('original piston rooms preserve occupancy and container positions after the
 
 test('original piston puzzles settle and reach their goals through movement and thermal actions', { skip: !fs.existsSync('public/levels.local.json') }, () => {
   const data = JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) as { levels: Level[] };
-  for (const [label, route] of [['4-01', '12220000122223233'], ['4-02', '232210030101222222321012'], ['8-01', '01222222332101222']]) {
+  for (const [label, route] of [['4-01', '12220000122223233'], ['4-02', '232210030101222222321012'], ['8-01', '01222233210122222']]) {
     const l = data.levels.find(l => l.label === label)!; let s = initialState(l);
     for (const step of route) { const next = move(l, s, Number(step) as 0 | 1 | 2 | 3); assert.ok(next, `${label}:${step}`); s = next; }
     assert.equal(s.solved, true, label); assert.equal(s.phase, 'ready'); assert.ok(s.players.some(p => p.temperature !== 1));
