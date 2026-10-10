@@ -6,7 +6,7 @@ import { cloneState, initialState, move, syncExteriorTemperature } from './engin
 import { inspectCell } from './inspection';
 import { compareLevels, levelIdentifier, levelLabels } from './level-labels';
 import { turnPlayback } from './turn-playback';
-import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds, type Session } from './session';
+import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, startSession, unlockedWorlds, type Session } from './session';
 import type { Dataset, Direction, Level, State, Temperature, World } from './types';
 
 const icons: Record<string, string> = {
@@ -35,7 +35,7 @@ app.innerHTML = `
   </header>
   <main class="workspace">
     <aside class="sidebar" aria-label="关卡选择">
-      <label class="world-picker-label" for="world-picker">选择世界</label><select id="world-picker" aria-label="选择世界"></select>
+      <label class="world-picker-label" for="world-picker">快速跳转</label><select id="world-picker" aria-label="快速跳转"></select>
       <div class="chapter-eyebrow" id="chapter-eyebrow"></div>
       <h1 id="world-title"></h1>
       <button class="world-button" id="world-button"><span>${icon('map')}探索世界地图</span>${icon('arrow')}</button>
@@ -157,7 +157,7 @@ function renderHud(): void {
   if (state.solved) message.innerHTML = `<span class="message-symbol">${icon('check')}</span><small>EQUILIBRIUM REACHED</small><h3>找到平衡。</h3><p>${state.moves} 步 · ${state.pushes} 次推动</p><div>${canExit() ? '<button id="finish-return" class="primary-button">返回 ' + (session.hints.length ? '关卡' : '上层场景') + icon('right') + '</button>' : '<button id="next-level" class="primary-button">下一关' + icon('right') + '</button><button id="finish-map" class="secondary-button">世界地图</button>'}</div>`;
   else if (state.phase === 'cycling') message.innerHTML = `<h3>循环结算中</h3><p>活塞进入循环，按 Z 撤销或 R 重置。</p><button id="frozen-undo" class="primary-button">撤销一步 <kbd>Z</kbd></button>`;
 }
-function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
+function display(snap = false, activity: 'idle' | 'walking' | 'pushing' = 'idle'): void { scene.setDiscoveredLevels(session.visited); scene.update(state, snap, activity); scene.setGrid(preferences.grid); renderHud(); renderLevels(); save(); }
 function cancelPlayback(): void { playback++; resolving = false; queuedDirection = undefined; clearTimeout(inputTimer); releaseDetail?.(); $('#step-status').hidden = true; scene.cancelMotionWaits(); }
 function load(id: string, outside: Temperature = 0, existing?: State, preserveCamera = false): void {
   const found = levelsById.get(id); if (!found) { notify('这个入口通向当前版本范围之外的场景。'); return; }
@@ -166,7 +166,7 @@ function load(id: string, outside: Temperature = 0, existing?: State, preserveCa
   recordState(session, state, level); solved = new Set(session.solved);
   if (level.worldId) selectedWorld = level.worldId;
   if (level.category === 'extra') category = 'extra'; else if (level.category === 'main' || level.category === 'world') category = 'main'; else if (level.category === 'lab') category = 'lab';
-  scene.load(level, state, levelLabels(data.levels), preserveCamera); display(true); $('#hover-info').hidden = true;
+  scene.setDiscoveredLevels(session.visited); scene.load(level, state, levelLabels(data.levels), preserveCamera); display(true); $('#hover-info').hidden = true;
   document.body.classList.remove('sidebar-open');
 }
 function selectLevel(id: string): void {
@@ -342,7 +342,7 @@ function bind(): void {
   };
   scene.onNoteClick = text => { $('#hint-text').textContent = text; $('#start-hint-button').toggleAttribute('disabled', editor.active || !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal(); };
   scene.onHover = (key, shown) => {
-    const info = $('#hover-info'), model = key === null || !shown ? undefined : inspectCell(shown, key, labels);
+    const info = $('#hover-info'), model = key === null || !shown ? undefined : inspectCell(shown, key, labels, new Set(editor.active ? editor.discoveredLevels : session.visited));
     if (!model) { info.hidden = true; return; }
     info.hidden = false; info.replaceChildren();
     const heading = document.createElement('strong'); heading.textContent = model.title; info.append(heading);
@@ -377,8 +377,7 @@ async function start(): Promise<void> {
     try { const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null'); if (value && levelsById.has(value.current?.levelId) && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) saved = value; } catch { /* Invalid saved data starts a new session. */ }
     if (saved) { session = completeHierarchy(data, saved); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current); }
     else {
-      const first = data.levels.find(l => l.category === 'main' && l.worldId === data.world)!;
-      session = selectSession(data, first);
+      session = startSession(data);
       try {
         const legacy = JSON.parse(localStorage.getItem('maxwell3d-save-v1') ?? 'null');
         if (legacy && levelsById.has(legacy.state?.levelId) && Array.isArray(legacy.solved)) {

@@ -1,6 +1,7 @@
 import { availablePortals, canMoveDemon, cloneState, directions, edge, initialState, opposite, portalPlayers, syncExteriorTemperature } from './engine';
 import type { Cell, Dataset, Demon, Direction, Level, State, World } from './types';
 import { depth, descendants } from './topology';
+import { portalUnlocked } from './level-labels';
 
 export interface Entry { parentId: string; portalKey: number; directions: Direction[] }
 export interface HintFrame { state: State; levelId: string }
@@ -14,6 +15,12 @@ export function createSession(level: Level, solved: string[] = [], visited: stri
   const current = initialState(level, new Set(solved));
   current.players.forEach((p, i) => { p.key = `${level.id}:0:${i}`; });
   return { current, solved: [...solved], visited: [...new Set([...visited, level.id])], states: { [level.id]: cloneState(current) }, baselines: { [level.id]: cloneState(current) }, entries: {}, hints: [], serial: 0 };
+}
+
+export function startSession(data: Dataset): Session {
+  const level = [data.root, data.hub, data.world].map(id => data.levels.find(l => l.id === id)).find(l => l !== undefined) ?? data.levels[0];
+  if (!level) throw new Error('关卡目录为空。');
+  return createSession(level);
 }
 
 export function selectSession(data: Dataset, level: Level, solved: string[] = [], visited: string[] = []): Session {
@@ -73,10 +80,10 @@ export function unlockedWorlds(data: Dataset, _solved: Iterable<string>): World[
 }
 
 export function portalCandidates(data: Dataset, session: Session): Cell[] {
-  const levels = new Map(data.levels.map(l => [l.id, l])), worlds = new Set(unlockedWorlds(data, session.solved).map(w => w.id));
+  const levels = new Map(data.levels.map(l => [l.id, l])), worlds = new Set(unlockedWorlds(data, session.solved).map(w => w.id)), visited = new Set(session.visited);
   return availablePortals(session.current).filter(c => {
     const target = levels.get(c.portal!.target);
-    return target && (!target.worldId || worlds.has(target.worldId)) && (!c.portal!.shortcut || session.visited.includes(target.id));
+    return target && (!target.worldId || worlds.has(target.worldId)) && portalUnlocked(c, visited);
   }).sort((a, b) => levels.get(a.portal!.target)!.label.localeCompare(levels.get(b.portal!.target)!.label, undefined, { numeric: true }));
 }
 

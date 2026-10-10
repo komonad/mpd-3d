@@ -1,4 +1,5 @@
 import { bodies } from './engine';
+import { portalUnlocked } from './level-labels';
 import type { Cell, Piston, State, Temperature } from './types';
 
 export interface InspectedItem {
@@ -14,7 +15,7 @@ export interface Inspection {
 export const temperatureName = (temperature: Temperature): string => temperature === 1 ? '高温' : temperature === -1 ? '低温' : temperature === 2 ? '第4温度' : '常温';
 export const pistonStateName = (piston: Piston): string => piston.expanded ? '展开' : '压缩';
 
-export function inspectCell(state: State, key: number, labels: Map<string, string>): Inspection | undefined {
+export function inspectCell(state: State, key: number, labels: Map<string, string>, visited: ReadonlySet<string> = new Set()): Inspection | undefined {
   const hovered = state.cells.find(c => c.key === key);
   if (!hovered) return;
   const pistons = new Map((state.pistons ?? []).map(p => [p.baseKey, p]));
@@ -33,6 +34,7 @@ export function inspectCell(state: State, key: number, labels: Map<string, strin
     ...(!c.storesHeat ? ['透明 · 不储热'] : []),
     ...((c.heatCapacity ?? 1) > 1 ? [`热容量 ${c.heatCapacity}`] : []),
     ...([0, 1, 2, 3].some(d => ((c.edges >> (d * 2)) & 3) === 3) ? ['粘边'] : []),
+    ...(c.portal?.shortcut ? [portalUnlocked(c, visited) ? '已解锁快捷入口' : '未解锁快捷入口 · 需先抵达目标关卡'] : c.portal ? ['普通入口'] : []),
     ...(pistons.has(c.key) ? [pistonStateName(pistons.get(c.key)!)] : [])].join(' · ');
   const contents: InspectedItem[] = [];
   const seen = new Set<number>();

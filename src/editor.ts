@@ -29,6 +29,7 @@ export class LevelEditor {
   private runStartId = '';
   private initialChecks: CheckResult[] = [];
   get hasBoundaryPistons(): boolean { return !!this.simulation?.session.current.pistons?.some(p => p.model === 'boundary'); }
+  get discoveredLevels(): string[] { return this.simulation?.session.visited ?? [this.draft.id]; }
 
   constructor(private base: Dataset, private scene: GameScene, private onClose: () => void) {
     addReferenceReplays(base, this.project);
@@ -219,6 +220,7 @@ export class LevelEditor {
     if (errors.length && !this.playing) return;
     const level = shownLevel ?? this.simulation?.level ?? this.draft;
     const state = shown ?? this.simulation?.session.current ?? new Simulation(this.data, level).session.current;
+    this.scene.setDiscoveredLevels(this.discoveredLevels);
     if (snap) this.scene.load(level, state, levelLabels(this.data.levels), this.shownId === level.id); else this.scene.update(state, false, 'walking');
     this.shownId = level.id;
     document.querySelector('#level-title')!.textContent = level.title ?? levelIdentifier(level);

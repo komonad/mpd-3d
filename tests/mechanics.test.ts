@@ -62,6 +62,17 @@ test('surface layers batch by material and their top pattern remains continuous 
   geometry.dispose();
 });
 
+test('every contour coating triangle retains its edge owner through rounded corners and holes', () => {
+  const cells = [cell(7, 0, 0, 1, 0xfb), cell(11, 1, 0, -1, 0xff), cell(19, 0, 1, 0, 0xff)];
+  const geometry = bodyLayerGeometry(cells, 0.96), owners = geometry.getAttribute('ownerKey'), keys = new Set(cells.map(c => c.key));
+  assert.ok(owners.count > 0);
+  for (let i = 0; i < owners.count; i += 3) {
+    assert.ok(keys.has(owners.getX(i)));
+    assert.equal(owners.getX(i + 1), owners.getX(i)); assert.equal(owners.getX(i + 2), owners.getX(i));
+  }
+  assert.deepEqual(new Set(owners.array), keys); geometry.dispose();
+});
+
 test('opposite insulating faces close the inner and outer sides of a transparent block', () => {
   for (const edges of [0x66, 0x99]) {
     const geometry = bodyLayerGeometry([cell(0, 0, 0, 0, edges, false)], 0.96), material = new MeshBasicMaterial();
@@ -113,7 +124,8 @@ test('ordinary welds, homogeneous sticky solids, and separate bodies have no adh
     [cell(0, 0, 0, 0, 0x45, false), cell(1, 1, 0, 0, 0x54, false)],
   ]) {
     const geometry = bodyLayerGeometry(cells, 0.96), owners = geometry.getAttribute('ownerKey');
-    assert.ok(Array.from({ length: owners.count }, (_, i) => owners.getX(i)).every(owner => owner === -1));
+    if (cells.length > 1) assert.equal(owners.count, 0);
+    else assert.ok(Array.from({ length: owners.count }, (_, i) => owners.getX(i)).every(owner => owner === cells[0].key));
     geometry.dispose();
   }
 });

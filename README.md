@@ -29,7 +29,7 @@ npm run build:pages
 npm run publish:pages
 ```
 
-GitHub Pages serves the root of the `gh-pages` branch. That branch contains compiled assets and the playable level catalogue; `master` retains the source project. Asset and catalogue URLs respect the `/mpd-3d/` base path. Each deployment includes `version.json` with its source revision. Publishing preserves the deployment branch history and does not switch the source checkout.
+GitHub Pages serves the root of the `gh-pages` branch. That branch contains compiled assets and the playable level catalogue; `master` retains the source project. Asset and catalogue URLs respect the `/mpd-3d/` base path. The Pages build writes to `output/pages-dist`; the local build writes to `dist`. Each deployment includes `version.json` with its source revision. Publishing preserves the deployment branch history and does not switch the source checkout.
 
 ## Controls
 
@@ -49,7 +49,7 @@ GitHub Pages serves the root of the `gh-pages` branch. That branch contains comp
 | Pan in free view | Middle drag |
 | Zoom camera | Wheel |
 
-Progress, discovered shortcuts, cached room states, and entry baselines are saved in browser local storage. The world selector provides direct access to the overworld, worlds 1–9, A, and B without changing completion progress. The overworld button opens the original outer map; canonical exits connect world maps to that map and its entrance hall. Saved rooms acquire missing outer parents without changing their current layout. World-map entrances transform when their corresponding levels are completed. Undo includes resets, scene transitions, and completion progress within the current browser session. The header, scene, controls, and footer occupy separate layout rows; only the level list scrolls within the sidebar. Fullscreen play expands the game area and preserves its controls and camera.
+New sessions start in the outermost entrance hall and follow its portals into the overworld and individual worlds. Progress, discovered shortcuts, cached room states, and entry baselines are saved in browser local storage. Quick jump provides direct access to the overworld, worlds 1–9, A, and B without changing completion progress. The overworld button opens the original outer map; canonical exits connect world maps to that map and its entrance hall. Saved rooms acquire missing outer parents without changing their current layout. Undiscovered shortcuts have gray labels, a dashed frame, and a lock symbol; discovering their target restores black labels. Ordinary entrances remain accessible before discovery. Hover descriptions use the same discovery rule as entry interaction. World-map entrances transform when their corresponding levels are completed. Undo includes resets, scene transitions, and completion progress within the current browser session. The header, scene, controls, and footer occupy separate layout rows; only the level list scrolls within the sidebar. Fullscreen play expands the game area and preserves its controls and camera.
 
 ## Level workbench
 

@@ -8,12 +8,12 @@ export const exteriorHalfExtent = 2048;
 const key = (p: Point) => `${p.x},${p.y}`;
 export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { width: number; height: number }): THREE.BufferGeometry {
   const root = cells[0], occupied = new Set(cells.map(key));
-  const segments: (Segment & { kind: number })[] = [];
-  for (const { x, y, edges } of cells) {
-    if (!occupied.has(`${x},${y - 1}`)) segments.push({ a: { x, y }, b: { x: x + 1, y }, direction: 0, kind: (edges >> 6) & 3 });
-    if (!occupied.has(`${x + 1},${y}`)) segments.push({ a: { x: x + 1, y }, b: { x: x + 1, y: y + 1 }, direction: 1, kind: (edges >> 4) & 3 });
-    if (!occupied.has(`${x},${y + 1}`)) segments.push({ a: { x: x + 1, y: y + 1 }, b: { x, y: y + 1 }, direction: 2, kind: (edges >> 2) & 3 });
-    if (!occupied.has(`${x - 1},${y}`)) segments.push({ a: { x, y: y + 1 }, b: { x, y }, direction: 3, kind: edges & 3 });
+  const segments: (Segment & { kind: number; owner: number })[] = [];
+  for (const { x, y, edges, key: owner } of cells) {
+    if (!occupied.has(`${x},${y - 1}`)) segments.push({ a: { x, y }, b: { x: x + 1, y }, direction: 0, kind: (edges >> 6) & 3, owner });
+    if (!occupied.has(`${x + 1},${y}`)) segments.push({ a: { x: x + 1, y }, b: { x: x + 1, y: y + 1 }, direction: 1, kind: (edges >> 4) & 3, owner });
+    if (!occupied.has(`${x},${y + 1}`)) segments.push({ a: { x: x + 1, y: y + 1 }, b: { x, y: y + 1 }, direction: 2, kind: (edges >> 2) & 3, owner });
+    if (!occupied.has(`${x - 1},${y}`)) segments.push({ a: { x, y: y + 1 }, b: { x, y }, direction: 3, kind: edges & 3, owner });
   }
   if (exterior) for (const s of segments) {
     if (s.a.x === 0 && s.b.x === 0 || s.a.y === 0 && s.b.y === 0 ||
@@ -43,12 +43,12 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
     const surface = surfaces[kind - 2];
     for (const i of [0, 1, 2, 0, 2, 3]) { surface.vertices.push(...points[i]); surface.uv.push(...coordinates[i]); surface.owners.push(owner); }
   }
-  function strip(o: Point, i: Point, n: Point, e: Point, kind: number, u: number, v: number): void {
+  function strip(o: Point, i: Point, n: Point, e: Point, kind: number, u: number, v: number, owner: number): void {
     const depth = 3, width = 0.1 / (hi - lo) * depth;
-    quad([vertex(o, hi), vertex(i, hi), vertex(n, hi), vertex(e, hi)], [[u, 0], [u, width], [v, width], [v, 0]], kind);
-    quad([vertex(o, lo), vertex(o, hi), vertex(e, hi), vertex(e, lo)], [[u, depth], [u, 0], [v, 0], [v, depth]], kind);
-    quad([vertex(n, lo), vertex(n, hi), vertex(i, hi), vertex(i, lo)], [[v, depth + width], [v, width], [u, width], [u, depth + width]], kind);
-    quad([vertex(e, lo), vertex(n, lo), vertex(i, lo), vertex(o, lo)], [[v, 0], [v, width], [u, width], [u, 0]], kind);
+    quad([vertex(o, hi), vertex(i, hi), vertex(n, hi), vertex(e, hi)], [[u, 0], [u, width], [v, width], [v, 0]], kind, owner);
+    quad([vertex(o, lo), vertex(o, hi), vertex(e, hi), vertex(e, lo)], [[u, depth], [u, 0], [v, 0], [v, depth]], kind, owner);
+    quad([vertex(n, lo), vertex(n, hi), vertex(i, hi), vertex(i, lo)], [[v, depth + width], [v, width], [u, width], [u, depth + width]], kind, owner);
+    quad([vertex(e, lo), vertex(n, lo), vertex(i, lo), vertex(o, lo)], [[v, 0], [v, width], [u, width], [u, 0]], kind, owner);
   }
   for (const loop of loops) {
     const curves = loop.map((s, j) => {
@@ -63,24 +63,24 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
       };
       return { outer: curve(0.01, turn > 0 ? 0.16 : 0.06), inner: curve(0.11, turn > 0 ? 0.06 : 0.16) };
     });
-    const strips: { o: Point; i: Point; n: Point; e: Point; kind: number; length: number }[] = [];
-    const append = (o: Point, i: Point, n: Point, e: Point, kind: number) => {
-      strips.push({ o, i, n, e, kind, length: Math.hypot(e.x + n.x - o.x - i.x, e.y + n.y - o.y - i.y) / 2 });
+    const strips: { o: Point; i: Point; n: Point; e: Point; kind: number; length: number; owner: number }[] = [];
+    const append = (o: Point, i: Point, n: Point, e: Point, kind: number, owner: number) => {
+      strips.push({ o, i, n, e, kind, owner, length: Math.hypot(e.x + n.x - o.x - i.x, e.y + n.y - o.y - i.y) / 2 });
     };
     curves.forEach((c, j) => {
       const next = curves[(j + 1) % curves.length], prev = loop[(j + loop.length - 1) % loop.length], s = loop[j];
-      for (let k = 0; k < c.outer.length - 1; k++) append(c.outer[k], c.inner[k], c.inner[k + 1], c.outer[k + 1], k < 4 ? prev.kind : s.kind);
-      append(c.outer.at(-1)!, c.inner.at(-1)!, next.inner[0], next.outer[0], s.kind);
+      for (let k = 0; k < c.outer.length - 1; k++) append(c.outer[k], c.inner[k], c.inner[k + 1], c.outer[k + 1], k < 4 ? prev.kind : s.kind, k < 4 ? prev.owner : s.owner);
+      append(c.outer.at(-1)!, c.inner.at(-1)!, next.inner[0], next.outer[0], s.kind, s.owner);
       if (prev.kind !== s.kind && c.outer.length > 1) {
         const o = c.outer[4], i = c.inner[4], kind = s.kind === 2 || s.kind === 3 ? s.kind : prev.kind;
-        quad([vertex(o, lo), vertex(i, lo), vertex(i, hi), vertex(o, hi)], [[0, 2], [0.2, 2], [0.2, 0], [0, 0]], kind);
+        quad([vertex(o, lo), vertex(i, lo), vertex(i, hi), vertex(o, hi)], [[0, 2], [0.2, 2], [0.2, 0], [0, 0]], kind, s.kind === 2 || s.kind === 3 ? s.owner : prev.owner);
       }
     });
     const perimeter = strips.reduce((sum, s) => sum + s.length, 0), repeats = loop.length * 3;
     let distance = 0;
     for (const s of strips) {
       const u = distance / perimeter * repeats; distance += s.length;
-      strip(s.o, s.i, s.n, s.e, s.kind, u, distance / perimeter * repeats);
+      strip(s.o, s.i, s.n, s.e, s.kind, u, distance / perimeter * repeats, s.owner);
     }
   }
   const at = new Map(cells.map(c => [key(c), c]));

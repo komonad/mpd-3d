@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { edge, initialState, move, transferHeat } from '../src/engine';
-import { completeHierarchy, createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, unlockedWorlds } from '../src/session';
+import { completeHierarchy, createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, startSession, unlockedWorlds } from '../src/session';
 import { fixedAnchorPoints } from '../src/body-geometry';
 import { laboratory } from '../src/laboratory';
 import type { BlockProperties, Cell, Dataset, Level, Temperature } from '../src/types';
@@ -12,6 +12,17 @@ const cell = (x: number, y: number, temperature: Temperature = 0, edges = 0x55):
 const level = (id: string, cells: Level['cells'] = [], players = [{ x: 1, y: 2 }], parentId?: string): Level => ({ id, label: id, category: 'main', width: 8, height: 6, cells, players, goals: [], tail: [0], parentId });
 const portal = (x: number, y: number, target: string, shortcut = false, temperature: Temperature = 0): Cell => ({ ...cell(x, y, temperature), portal: { target, shortcut, before: properties(temperature), after: properties() } });
 const catalogue = (...levels: Level[]): Dataset => ({ version: 2, world: levels[0].id, levels, hints: {} });
+
+test('new sessions start in the outer root while direct selections retain their hierarchy', () => {
+  const root = level('root', [portal(2, 2, 'hub')]), hub = level('hub', [portal(2, 2, 'world')], undefined, 'root');
+  const world = level('world', [portal(2, 2, 'room')], undefined, 'hub'), room = level('room', [], undefined, 'world');
+  const data = { ...catalogue(root, hub, world, room), root: root.id, hub: hub.id, world: world.id };
+  const started = startSession(data);
+  assert.equal(started.current.levelId, root.id); assert.deepEqual(started.visited, [root.id]); assert.deepEqual(started.solved, []); assert.deepEqual(started.entries, {});
+  assert.equal(enterPortal(data, started)!.current.levelId, hub.id);
+  const selected = selectSession(data, room); assert.equal(selected.current.levelId, room.id); assert.equal(selected.entries.room.parentId, world.id);
+  assert.equal(startSession({ ...data, root: undefined }).current.levelId, hub.id);
+});
 
 test('enter and exit preserve their side and do not trigger heat balance', () => {
   const parent = level('parent', [portal(2, 2, 'child', false, -1)]), child = level('child', [cell(2, 2, 1)], undefined, parent.id), data = catalogue(parent, child);

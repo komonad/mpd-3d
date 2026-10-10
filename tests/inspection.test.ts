@@ -31,3 +31,12 @@ test('inspection lists nested pistons, transparent portals, and contained demons
 test('stale hover keys disappear when their objects are removed', () => {
   assert.equal(inspectCell(state([]), 3, new Map()), undefined);
 });
+
+test('shortcut hover status follows discovery and distinguishes canonical entrances', () => {
+  const cell = block(0); cell.portal = { target: 'room', shortcut: true, before: block(0), after: block(0) };
+  const s = state([cell]), labels = new Map([['room', '3-12']]);
+  assert.match(inspectCell(s, 0, labels)?.details ?? '', /未解锁快捷入口/);
+  assert.match(inspectCell(s, 0, labels, new Set(['room']))?.details ?? '', /已解锁快捷入口/);
+  cell.portal.shortcut = false;
+  assert.match(inspectCell(s, 0, labels)?.details ?? '', /普通入口/);
+});

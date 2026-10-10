@@ -14,7 +14,7 @@ import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
 import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth, spawnPoints } from './view-state';
 import { depth, directions, opposite } from './topology';
-import { portalLabel, type levelLabels } from './level-labels';
+import { portalPresentation, type levelLabels } from './level-labels';
 import { pickBodyCell } from './cell-picking';
 import type { Cell, Level, Piston, State, Temperature } from './types';
 
@@ -26,14 +26,18 @@ interface DemonVisual {
   face: THREE.Group; eyes: THREE.Group; faintEyes: THREE.Group; thinkingEyes: THREE.Group; awake: boolean;
 }
 
-function labelTexture(text: string, weight = 700): THREE.CanvasTexture {
+function labelTexture(text: string, weight = 700, ink = '#000000', locked = false): THREE.CanvasTexture {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
   const lines = text.split(':'), ctx = canvas.getContext('2d')!;
   ctx.font = `${weight} 45px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const size = Math.min(45, 104 / lines.length, 45 * 112 / Math.max(1, ...lines.map(line => ctx.measureText(line).width)));
-  ctx.font = `${weight} ${size}px sans-serif`; ctx.fillStyle = '#000000';
+  ctx.font = `${weight} ${size}px sans-serif`; ctx.fillStyle = ink;
   lines.forEach((line, i) => ctx.fillText(line, 64, 66 + (i - (lines.length - 1) / 2) * size * 1.1));
-  return new THREE.CanvasTexture(canvas);
+  if (locked) {
+    ctx.strokeStyle = ink; ctx.lineWidth = 3; ctx.setLineDash([7, 5]); ctx.strokeRect(7, 9, 114, 110);
+    ctx.setLineDash([]); ctx.fillRect(58, 102, 12, 10); ctx.beginPath(); ctx.arc(64, 102, 4, Math.PI, 0); ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture;
 }
 
 export class GameScene {
@@ -50,6 +54,7 @@ export class GameScene {
   private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   private parts = new THREE.Group();
   private labels: ReturnType<typeof levelLabels> = new Map();
+  private visited = new Set<string>();
   private shownState?: State;
   private activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle';
   private pistonRods: { rod: THREE.Mesh; target: number; direction: number }[] = [];
@@ -221,9 +226,10 @@ export class GameScene {
     for (const cell of cells) {
       const x = cell.x - root.x, z = cell.y - root.y;
       if (cell.portal || (cell.heatCapacity ?? 1) > 1) {
-        const text = cell.portal ? portalLabel(cell, this.labels) : String(cell.heatCapacity);
-        const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(text, cell.portal?.shortcut ? 600 : 700), transparent: true, depthWrite: false }), g, x, height + 0.09, z);
+        const label = cell.portal ? portalPresentation(cell, this.labels, this.visited) : { text: String(cell.heatCapacity), weight: 700, ink: '#000000', locked: false };
+        const mark = this.mesh(new THREE.PlaneGeometry(0.74, 0.64), new THREE.MeshBasicMaterial({ map: labelTexture(label.text, label.weight, label.ink, label.locked), transparent: true, depthWrite: false, toneMapped: false }), g, x, height + 0.09, z);
         mark.rotation.x = -Math.PI / 2; mark.castShadow = false; mark.userData.key = cell.key; mark.userData.labelKey = cell.key; mark.userData.portal = cell.portal?.target;
+        if (cell.portal) { mark.userData.portalCell = cell; mark.userData.locked = label.locked; }
       }
       const piston = state.pistons?.find(p => p.baseKey === cell.key);
       if (piston) {
@@ -277,10 +283,14 @@ export class GameScene {
     if (fixed) {
       const steel = new THREE.MeshPhysicalMaterial({ color: '#d3dadd', metalness: 0.85, roughness: 0.3 });
       const slot = new THREE.MeshBasicMaterial({ color: '#46515b' });
-      for (const p of fixedAnchorPoints(cells, exterior ? this.level : undefined)) {
-        this.mesh(new THREE.CylinderGeometry(0.054, 0.054, 0.025, 6), steel, g, p.x - root.x, height + 0.071, p.y - root.y);
-        this.mesh(new THREE.BoxGeometry(0.065, 0.003, 0.009), slot, g, p.x - root.x, height + 0.085, p.y - root.y);
-      }
+      const anchors = fixedAnchorPoints(cells, exterior ? this.level : undefined);
+      const heads = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.054, 0.054, 0.025, 6), steel, anchors.length);
+      const slots = new THREE.InstancedMesh(new THREE.BoxGeometry(0.065, 0.003, 0.009), slot, anchors.length), matrix = new THREE.Matrix4();
+      anchors.forEach((p, i) => {
+        heads.setMatrixAt(i, matrix.makeTranslation(p.x - root.x, height + 0.071, p.y - root.y));
+        slots.setMatrixAt(i, matrix.makeTranslation(p.x - root.x, height + 0.085, p.y - root.y));
+      });
+      heads.castShadow = slots.castShadow = heads.receiveShadow = slots.receiveShadow = true; g.add(heads, slots);
     }
     if (cells.some(c => !c.storesHeat)) {
       // Thermal barriers occlude transmitted light; surface decorations stay outside the refraction buffer.
@@ -357,10 +367,11 @@ export class GameScene {
         let owners = group.userData.layerOwners as number[] | undefined;
         if (!owners) {
           owners = [];
+          const ownerIndices = new Map(cells.map((cell, index) => [cell.key, index]));
           for (let i = 0; i < positions.count; i += 3) {
             const x = (positions.getX(i) + positions.getX(i + 1) + positions.getX(i + 2)) / 3 + root.x;
             const y = (positions.getZ(i) + positions.getZ(i + 1) + positions.getZ(i + 2)) / 3 + root.y;
-            const owner = cells.findIndex(c => c.key === ownerKeys.getX(i));
+            const owner = ownerIndices.get(ownerKeys.getX(i)) ?? -1;
             owners.push(owner >= 0 ? owner : cells.reduce((best, c, index) => Math.hypot(c.x - x, c.y - y) < Math.hypot(cells[best].x - x, cells[best].y - y) ? index : best, 0));
           }
           group.userData.layerOwners = owners;
@@ -473,6 +484,21 @@ export class GameScene {
     });
     if (snap || moved) this.lastStep = performance.now();
     if (this.hoverEvent) this.hover(this.hoverEvent);
+  }
+
+  setDiscoveredLevels(ids: Iterable<string>): void {
+    const visited = new Set(ids);
+    if (visited.size === this.visited.size && [...visited].every(id => this.visited.has(id))) return;
+    this.visited = visited;
+    this.parts.traverse(object => {
+      const cell = object.userData.portalCell as Cell | undefined;
+      if (!cell || !(object instanceof THREE.Mesh)) return;
+      const label = portalPresentation(cell, this.labels, visited);
+      if (label.locked === object.userData.locked) return;
+      const material = object.material as THREE.MeshBasicMaterial;
+      material.map?.dispose(); material.map = labelTexture(label.text, label.weight, label.ink, label.locked);
+      object.userData.locked = label.locked;
+    });
   }
 
   whenSettled(): Promise<boolean> { return new Promise(resolve => { this.motionWaiters.push(resolve); }); }

@@ -17,3 +17,12 @@ export function portalLabel(cell: Cell, labels: ReturnType<typeof levelLabels>):
   const name = cell.portal && labels.get(cell.portal.target);
   return name ? cell.portal!.shortcut ? name.full : name.local : '↗';
 }
+
+export function portalUnlocked(cell: Cell, visited: ReadonlySet<string>): boolean {
+  return !cell.portal?.shortcut || visited.has(cell.portal.target);
+}
+
+export function portalPresentation(cell: Cell, labels: ReturnType<typeof levelLabels>, visited: ReadonlySet<string>) {
+  const locked = !portalUnlocked(cell, visited);
+  return { text: portalLabel(cell, labels), locked, ink: locked ? '#92979b' : '#000000', weight: cell.portal?.shortcut ? 600 : 700 };
+}

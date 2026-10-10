@@ -3,14 +3,15 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const git = (args, cwd = process.cwd()) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-const index = fs.readFileSync('dist/index.html', 'utf8');
+const build = 'output/pages-dist';
+const index = fs.readFileSync(path.join(build, 'index.html'), 'utf8');
 if (!index.includes('/mpd-3d/assets/')) throw new Error('Run npm run build:pages before publishing.');
-if (!fs.existsSync('dist/levels.local.json')) throw new Error('The deployment requires imported level data.');
+if (!fs.existsSync(path.join(build, 'levels.local.json'))) throw new Error('The deployment requires imported level data.');
 const source = git(['rev-parse', 'HEAD']);
 const remote = git(['remote', 'get-url', 'origin']);
 fs.mkdirSync('output', { recursive: true });
 const directory = fs.mkdtempSync(path.resolve('output/pages-'));
-fs.cpSync('dist', directory, { recursive: true });
+fs.cpSync(build, directory, { recursive: true });
 fs.writeFileSync(path.join(directory, '.nojekyll'), '');
 fs.writeFileSync(path.join(directory, 'version.json'), JSON.stringify({ revision: source }));
 git(['init', '--initial-branch=gh-pages'], directory);
