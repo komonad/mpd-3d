@@ -32,6 +32,10 @@ Ordinary pushes attempt translation of the complete loaded body before relative 
 
 An absent edge on an external load joins the exposed housing face it touches, including the back face of a compressed housing. Expansion state and thermal coating do not remove this external mechanical connection. The compressed opening exposes inventory rather than a solid housing face.
 
+An absent external face also joins a transparent neighbor after translation. In 9-22, the cold opaque load carries the transparent goal block upward as one body; the load's absent lower face retains its surface code.
+
+Passive piston exchanges change temperature independently of heat capacity. The native exchange constructor at `0x14003cac0` maps compression from cold to neutral and all other temperatures to hot. Expansion maps hot to neutral and all other temperatures to cold. A retentive housing can therefore lose its reset retention through passive motion. Transparent housings receive the motion-phase temperature, then contribute zero capacity to the next thermal balance.
+
 Released piston inventories expose unpaired absent edges as adhesive faces before heat balance and subsequent actuation. Their insulating faces retain their edge codes. Ordinary rigid-body translation preserves its existing surface codes.
 
 Active extension evaluates the final relative position of the housing and its inventory. If a dependency translates both to the same on-grid address, the inventory remains contained and the housing remains compressed. Such carriage does not spend an expansion impulse. A following heat phase can continue the thermal dependency chain. In 9-24, the final rightward push leaves the demon stationary while chained actuations carry the housings across the passage and place the third housing on the goal.
@@ -57,7 +61,9 @@ World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibi
 | 9-5 | 28.60 s | The movable entrance advances right and mechanically displaces the overheated demon ahead of it. |
 | 9-11 | 15.23 s | An upward push moves the transparent frame and its attached compressed housing together. |
 | 9-14 | 2.67 s | Moving left from the retentive block leaves the demon at `(1, 2)` with neutral temperature. |
+| 9-15 | 398.10 s | A blocked opening-side push compresses and reheats the retentive housing; automatic extension leaves it neutral, so reset restores it while retaining the demon. |
 | 9-17 | 6.53 s | Both demons and their enclosing frame advance right in one input. |
+| 9-22 | 726.57 s | An upward push carries the transparent goal block together with the cold load above it. |
 | 9-24 | 888.97 s | The final rightward push starts a chain of thermal actions; every phase preserves inventory layers and the demon's position. |
 | 9-25 | 912.37 s | The final turn places the retained solid load on the goal and leaves both surviving housings expanded. |
 

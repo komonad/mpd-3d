@@ -215,14 +215,14 @@ class MotionPlan {
     for (const key of this.compressed) {
       const piston = boundaryPiston(this.state, key)!, base = this.state.cells.find(c => c.key === key)!;
       piston.expanded = false;
-      if (base.storesHeat && base.temperature === 0) base.temperature = 1;
+      base.temperature = base.temperature === -1 ? 0 : 1;
     }
     for (const piston of this.state.pistons ?? []) {
       if (piston.model !== 'boundary' || piston.expanded || this.cells.has(piston.baseKey) && !extended.has(piston.baseKey)) continue;
       const base = this.state.cells.find(c => c.key === piston.baseKey);
       if (base && extended.has(base.key)) {
         piston.expanded = true;
-        if (base.storesHeat && base.temperature === 0) base.temperature = -1;
+        base.temperature = base.temperature === 1 ? 0 : -1;
         continue;
       }
       if (!base || this.state.cells.some(c => c.container === base.key) || this.state.players.some(p => p.container === base.key)) continue;
@@ -230,7 +230,7 @@ class MotionPlan {
       const pulled = this.state.cells.find(c => this.cells.has(c.key) && c.container === base.container && c.x === base.x + 2 * d.x && c.y === base.y + 2 * d.y);
       if (this.direction === piston.direction && pulled && (edge(base, piston.direction) === 3 || edge(pulled, opposite(piston.direction)) === 3)) {
         piston.expanded = true;
-        if (base.storesHeat && base.temperature === 0) base.temperature = -1;
+        base.temperature = base.temperature === 1 ? 0 : -1;
       }
     }
   }

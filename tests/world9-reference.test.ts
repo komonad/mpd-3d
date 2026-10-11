@@ -56,6 +56,34 @@ test('9-14 settles its demon to neutral after leaving the retentive block', { sk
   assert.deepEqual(run.simulation.session.current.players.map(p => [p.x, p.y, p.temperature]), [[1, 2, 0]]);
 });
 
+test('9-15 exchanges the retentive housing temperature before resetting and restoring its final load', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-15')!);
+  run.seek(87);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 31).map(c => [c.x, c.y, c.temperature]), [[10, 4, 2]]);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true);
+  const exchanged = run.simulation.session.current;
+  assert.deepEqual(exchanged.players.map(p => [p.x, p.y, p.temperature]), [[9, 4, 2]]);
+  assert.deepEqual(exchanged.cells.filter(c => c.key === 31).map(c => [c.x, c.y, c.temperature]), [[10, 4, 0]]);
+  assert.ok(exchanged.turnFrames!.some(frame => frame.pistons.some(p => p.baseKey === 31 && !p.expanded) && frame.cells.some(c => c.key === 31 && c.temperature === 1)));
+  assert.equal(run.advance()?.command, 'RESET'); assert.equal(run.accepted, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 31).map(c => [c.x, c.y, c.temperature]), [[5, 2, 1]]);
+  run.seek(run.operations.length - 2);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 28).map(c => [c.x, c.y]), [[10, 3]]);
+  run.advance(); run.advance(); assert.equal(run.passed, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 28).map(c => [c.x, c.y]), [[10, 5]]);
+});
+
+test('9-22 carries its transparent goal block with the absent lower face of the cold load', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-22')!);
+  run.seek(211);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => [24, 41].includes(c.key)).map(c => [c.key, c.x, c.y]), [[24, 4, 5], [41, 4, 6]]);
+  assert.equal(run.advance()?.command, 'U'); assert.equal(run.accepted, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => [24, 41].includes(c.key)).map(c => [c.key, c.x, c.y]), [[24, 4, 4], [41, 4, 5]]);
+  run.seek(run.operations.length - 1);
+  assert.equal(run.advance()?.command, 'D'); assert.equal(run.passed, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 29).map(c => [c.x, c.y, c.temperature]), [[4, 6, 2]]);
+});
+
 test('9-17 opens by moving the enclosing frame with both demons', { skip: !data }, () => {
   const level = data!.levels.find(level => level.displayName === '9-17')!, state = initialState(level);
   const next = move(level, state, 2)!;

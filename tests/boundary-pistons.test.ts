@@ -26,6 +26,46 @@ test('an absent external load edge joins the back of a housing in either expansi
   }
 });
 
+test('passive compression exchanges cold for neutral and every other temperature for hot', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const temperature of [-1, 0, 1, 2] as const) for (const glass of [false, true]) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
+    const l = room([{ ...housing(4, temperature, true), storesHeat: !glass }], [{ ...piston(0, true), direction }], [{ x: 4 + d.x, y: 3 + d.y }]);
+    const state = initialState(l);
+    assert.equal(moveBoundaryDemons(l, state, ((direction + 2) % 4) as typeof direction).moved, true);
+    assert.equal(state.pistons![0].expanded, false);
+    assert.equal(state.players[0].container, 0);
+    assert.equal(state.cells[0].temperature, temperature === -1 ? 0 : 1);
+  }
+});
+
+test('passive extension exchanges hot for neutral and every other temperature for cold', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const temperature of [-1, 0, 1, 2] as const) for (const glass of [false, true]) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction], back = (direction + 2) % 4;
+    const load = { ...block(4 + d.x, 3 + d.y), edges: 0x55 | (3 << (back * 2)) };
+    const l = room([{ ...housing(4, temperature, true), storesHeat: !glass }, load], [{ ...piston(0), direction }], [{ x: 4, y: 3, container: 0 }]);
+    const state = initialState(l);
+    assert.equal(moveBoundaryDemons(l, state, direction).moved, true);
+    assert.equal(state.pistons![0].expanded, true);
+    assert.equal(state.players[0].container, undefined);
+    assert.equal(state.cells[0].temperature, temperature === 1 ? 0 : -1);
+  }
+});
+
+test('an absent external solid face carries its transparent neighbor after translation', () => {
+  for (const direction of [0, 1, 2, 3] as const) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction], transverse = ((direction + 1) % 4) as typeof direction;
+    const opaque = { ...block(4, 3), edges: 0x55 & ~(3 << (direction * 2)) };
+    const l = room([opaque, { ...block(4 + d.x, 3 + d.y), storesHeat: false }], []);
+    const state = initialState(l); state.cells[0].edges = opaque.edges;
+    assert.equal(bodies(state.cells, state.pistons).length, 1);
+    const t = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][transverse];
+    state.players = [{ x: 4 - t.x, y: 3 - t.y, temperature: 0 }];
+    assert.deepEqual(moveBoundaryDemons(l, state, transverse), { moved: true, pushed: true });
+    assert.deepEqual(state.cells.map(c => [c.x, c.y]), [[4 + t.x, 3 + t.y], [4 + d.x + t.x, 3 + d.y + t.y]]);
+    assert.equal(state.cells[0].edges, opaque.edges);
+  }
+});
+
 test('released inventories expose adhesive edges while preserving insulation', () => {
   const l = room([housing(4, 2, true), { ...block(4, 3, 0, 0), storesHeat: false, edges: 0xa8 }, { ...block(5, 2, 2), edges: 0xaa }], [piston(0)], [{ x: 6, y: 4 }]);
   const before = initialState(l), state = structuredClone(before);
@@ -299,7 +339,7 @@ test('advancing housings store supported loads and compress in every opening dir
     const s = initialState(l);
     assert.deepEqual(moveBoundaryDemons(l, s, direction), { moved: true, pushed: true });
     assert.deepEqual(s.cells.map(c => [c.x, c.y, c.container]), [[4 + d.x, 3 + d.y, undefined], [4 + d.x, 3 + d.y, 0], [4 + 2 * d.x, 3 + 2 * d.y, undefined]]);
-    assert.equal(s.pistons![0].expanded, false); assert.equal(s.cells[0].temperature, expanded && !glass ? 1 : 0);
+    assert.equal(s.pistons![0].expanded, false); assert.equal(s.cells[0].temperature, expanded ? 1 : 0);
     assert.deepEqual([s.players[0].x, s.players[0].y, s.players[0].container], [4, 3, undefined]);
   }
 });
