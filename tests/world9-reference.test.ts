@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { initialState, move } from '../src/engine';
+import { edge, initialState, move } from '../src/engine';
 import { savedSolutions, SolutionReplay } from '../src/solutions';
 import type { Dataset } from '../src/types';
 import { address } from '../src/topology';
@@ -71,6 +71,29 @@ test('9-15 exchanges the retentive housing temperature before resetting and rest
   assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 28).map(c => [c.x, c.y]), [[10, 3]]);
   run.advance(); run.advance(); assert.equal(run.passed, true);
   assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 28).map(c => [c.x, c.y]), [[10, 5]]);
+});
+
+test('9-16 exposes reset cuts and stores its lower demon against the anchored load', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-16')!);
+  assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV15wbW6cE5a/');
+  run.seek(66);
+  assert.equal(run.simulation.session.current.cells.some(c => c.key === 17), false);
+  assert.equal(run.advance()?.command, 'RESET'); assert.equal(run.accepted, true);
+  assert.equal(edge(run.simulation.session.current.cells.find(c => c.key === 17)!, 2), 3);
+  run.seek(85);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => [14, 17, 18].includes(c.key)).map(c => [c.key, c.x, c.y, c.temperature]),
+    [[14, 2, 2, 2], [17, 2, 3, 2], [18, 3, 2, 2]]);
+  run.seek(run.operations.length - 3);
+  assert.equal(run.simulation.session.current.outside, 0);
+  assert.equal(run.advance()?.command, 'D'); assert.equal(run.accepted, true);
+  const stored = run.simulation.session.current;
+  assert.deepEqual(stored.players.map(p => [p.x, p.y, p.temperature, p.container]), [[4, 3, 2, undefined], [4, 6, 2, 14]]);
+  assert.equal(stored.pistons!.find(p => p.baseKey === 14)!.expanded, false);
+  assert.deepEqual(stored.cells.filter(c => [17, 18].includes(c.key)).map(c => [c.key, c.x, c.y]), [[17, 4, 4], [18, 4, 5]]);
+  assert.equal(run.advance()?.command, 'RESET'); assert.equal(run.accepted, true);
+  assert.deepEqual(run.simulation.session.current.players.map(p => [p.x, p.y, p.temperature, p.container]), [[4, 3, 2, undefined], [4, 6, 2, undefined]]);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.passed, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 30).map(c => [c.x, c.y, c.temperature]), [[6, 6, 1]]);
 });
 
 test('9-22 carries its transparent goal block with the absent lower face of the cold load', { skip: !data }, () => {

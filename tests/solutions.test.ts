@@ -4,13 +4,14 @@ import fs from 'node:fs';
 import { observableState, Simulation } from '../src/editor-model';
 import { compactOperations, parseSolutionFile, savedSolutions, solutionFile, solutionStartProgress, SolutionRecording, SolutionReplay } from '../src/solutions';
 import { parseOperations } from '../src/editor-model';
+import { edge } from '../src/engine';
 import type { Dataset, Level } from '../src/types';
 
 const data: Dataset | undefined = fs.existsSync('public/levels.local.json') ? JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) : undefined;
 
-test('saved solution identifiers are unique and worlds 1 through 3 include every main room', () => {
+test('saved solution identifiers are unique and verified worlds include every numbered room', () => {
   assert.equal(new Set(savedSolutions.map(s => s.levelId)).size, savedSolutions.length);
-  for (const world of [1, 2, 3]) assert.deepEqual(savedSolutions.filter(s => s.label.startsWith(`${world}-`)).map(s => s.label), Array.from({ length: 20 }, (_, i) => `${world}-${i + 1}`));
+  for (const world of [1, 2, 3, 9]) assert.deepEqual(savedSolutions.filter(s => s.label.startsWith(`${world}-`)).map(s => s.label), Array.from({ length: world === 9 ? 25 : 20 }, (_, i) => `${world}-${i + 1}`));
 });
 
 test('every saved solution completes through the room-session simulation', { skip: !data }, () => {
@@ -22,6 +23,18 @@ test('every saved solution completes through the room-session simulation', { ski
     assert.equal(replay.passed, true, solution.label);
     assert.equal(replay.advance(), undefined); assert.equal(replay.cursor, replay.operations.length);
   }
+});
+
+test('7-11 preserves a surviving adhesive cut and revives an ordinary face', { skip: !data }, () => {
+  const replay = new SolutionReplay(data!, savedSolutions.find(s => s.label === '7-11')!);
+  replay.seek(3);
+  assert.equal(replay.simulation.session.current.cells.some(c => c.key === 33), false);
+  assert.equal(edge(replay.simulation.session.current.cells.find(c => c.key === 32)!, 2), 3);
+  replay.seek(7);
+  const state = replay.simulation.session.current;
+  assert.equal(edge(state.cells.find(c => c.key === 32)!, 2), 3);
+  assert.equal(edge(state.cells.find(c => c.key === 33)!, 0), 1);
+  replay.seek(replay.operations.length); assert.equal(replay.passed, true);
 });
 
 test('numbered replay starts complete earlier worlds and rooms while leaving the destination and later rooms unsolved', { skip: !data }, () => {

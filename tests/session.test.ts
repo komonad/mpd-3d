@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { edge, initialState, move, transferHeat } from '../src/engine';
+import { bodies, edge, initialState, move, transferHeat } from '../src/engine';
 import { completeHierarchy, createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, startSession, unlockedWorlds } from '../src/session';
 import { fixedAnchorPoints } from '../src/body-geometry';
 import { laboratory } from '../src/laboratory';
@@ -161,6 +161,45 @@ test('retentive objects keep their state across reset and temporarily suppress i
   s = resetSession(s); assert.equal(s.current.cells.length, 1); assert.equal(s.current.cells[0].key, 1);
   s.current.cells[0].x = 5;
   s = resetSession(s); assert.deepEqual(s.current.cells.map(c => [c.key, c.x]), [[0, 2], [1, 5]]);
+});
+
+test('partial reset exposes a suppressed compound mate while preserving an exterior face', () => {
+  const l = level('a', [cell(0, 2, 0, 0x44), cell(1, 2, 0, 0x54), cell(5, 2, 2)], [{ x: 1, y: 4 }]);
+  const session = createSession(l); session.current.cells[2].x = 1;
+  const reset = resetSession(session), restored = reset.current.cells.find(c => c.key === 0)!;
+  assert.deepEqual(reset.current.cells.map(c => c.key), [0, 2]);
+  assert.equal(edge(restored, 2), 3); assert.equal(edge(restored, 0), 0);
+  assert.equal(reset.current.cells.find(c => c.key === 2)!.temperature, 2);
+  assert.equal(edge(session.current.cells[0], 2), 0);
+  assert.equal(edge(session.baselines.a.cells[0], 2), 0);
+});
+
+test('partial reset preserves a surviving absent-face bond', () => {
+  const l = level('a', [cell(2, 2, 0, 0x45), cell(3, 2, 2, 0x54)], [{ x: 1, y: 4 }]);
+  const reset = resetSession(createSession(l));
+  assert.equal(edge(reset.current.cells[0], 2), 0);
+  assert.equal(edge(reset.current.cells[1], 0), 0);
+});
+
+test('partial reset preserves the absent-face connection to a replacement transparent neighbor', () => {
+  const l = level('a', [cell(2, 2, 0, 0x45), cell(3, 2, 0, 0x54), { ...cell(5, 2, 2), storesHeat: false }], [{ x: 1, y: 4 }]);
+  const session = createSession(l); session.current.cells[2].x = 3;
+  const reset = resetSession(session);
+  assert.deepEqual(reset.current.cells.map(c => c.key), [0, 2]);
+  assert.equal(edge(reset.current.cells[0], 2), 0);
+  assert.equal(bodies(reset.current.cells).length, 1);
+});
+
+test('revived neutral compound cells expose ordinary faces while colored cuts remain adhesive', () => {
+  for (const temperature of [-1, 0, 1, 2] as const) {
+    const l = level('a', [cell(2, 2, temperature, 0x45), cell(3, 2, 2, 0x54)], [{ x: 1, y: 4 }]);
+    const session = createSession(l); session.current.cells = session.current.cells.filter(c => c.key !== 0);
+    session.current.cells[0].x = 5;
+    const reset = resetSession(session), revived = reset.current.cells.find(c => c.key === 0)!;
+    assert.equal(edge(revived, 2), temperature === 0 ? 1 : 3);
+    assert.equal(revived.temperature, temperature);
+    assert.equal(edge(revived, 0), 1);
+  }
 });
 
 test('the fourth temperature only wins a neutral heat balance and transparent cells store none', () => {

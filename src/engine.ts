@@ -1,6 +1,6 @@
 import type { Cell, Direction, Level, State, Temperature } from './types';
 import { applyPush, passiveCompression, pushPlan, settleTurn } from './pistons';
-import { contacts, directions, edge, opposite } from './topology';
+import { contacts, directions, edge, opposite, positionKey } from './topology';
 import { moveBoundaryDemons } from './boundary-pistons';
 
 // Edge pairs are ordered west, south, east, north in the MXW stream.
@@ -38,9 +38,7 @@ export function bodies(cells: Cell[], pistons: State['pistons'] = []): Cell[][] 
     const a = edge(c, contact.direction), b = edge(n, opposite(contact.direction));
     const stickyInterior = contact.internal && ([0, 1, 2, 3].some(d => d !== contact.direction && d !== opposite(contact.direction) && (edge(c, d) === 3 || edge(n, d) === 3)));
     // Absent faces retain their external connections to housings and transparent neighbors.
-    const housingJoin = !contact.internal && pistons?.some(p => p.model === 'boundary' &&
-      (contact.direction === p.direction || opposite(contact.direction) === p.direction) &&
-      (p.baseKey === c.key && b === 0 || p.baseKey === n.key && a === 0));
+    const housingJoin = !contact.internal && pistons?.some(p => p.model === 'boundary' && (p.baseKey === c.key && b === 0 || p.baseKey === n.key && a === 0));
     const transparentJoin = !contact.internal && (a === 0 || b === 0) && (!c.storesHeat || !n.storesHeat);
     if (contact.internal ? stickyInterior : a === 3 || b === 3 || housingJoin || transparentJoin || a === 0 && b === 0) {
       if (!links.has(c.key)) links.set(c.key, new Set());
@@ -62,12 +60,20 @@ export function bodies(cells: Cell[], pistons: State['pistons'] = []): Cell[][] 
 
 export function exteriorKeys(level: Pick<Level, 'width' | 'height'>, state: State): Set<number> {
   const pistonKeys = new Set(state.pistons?.map(p => p.baseKey));
-  const walls = state.cells.filter(c => c.container === undefined && !c.portal && !pistonKeys.has(c.key)).map(c => {
-    let edges = c.edges;
-    for (let dir = 0; dir < 4; dir++) if (edge(c, dir) === 3) edges = (edges & ~(3 << (dir * 2))) | (1 << (dir * 2));
-    return { ...c, edges };
-  });
-  return new Set(bodies(walls).filter(group => group.some(c => c.fixed) && group.some(c => c.x === 0 || c.y === 0 || c.x === level.width - 1 || c.y === level.height - 1)).flatMap(group => group.map(c => c.key)));
+  const walls = state.cells.filter(c => c.container === undefined && !c.portal && !pistonKeys.has(c.key));
+  // Only mutually absent faces identify the exterior's intrinsic cells; attached objects retain finite capacity.
+  const lookup = new Map(walls.map(c => [positionKey(c.x, c.y), c])), seen = new Set<number>(), keys = new Set<number>();
+  for (const start of walls) {
+    if (seen.has(start.key)) continue;
+    const group = [start]; seen.add(start.key);
+    for (let i = 0; i < group.length; i++) for (const [dir, d] of directions.entries()) {
+      const c = group[i], n = lookup.get(positionKey(c.x + d.x, c.y + d.y));
+      if (!n || seen.has(n.key) || edge(c, dir) !== 0 || edge(n, opposite(dir)) !== 0) continue;
+      seen.add(n.key); group.push(n);
+    }
+    if (group.some(c => c.fixed) && group.some(c => c.x === 0 || c.y === 0 || c.x === level.width - 1 || c.y === level.height - 1)) group.forEach(c => keys.add(c.key));
+  }
+  return keys;
 }
 
 export function syncExteriorTemperature(level: Pick<Level, 'width' | 'height'>, state: State): Set<number> {

@@ -1,6 +1,6 @@
 import { availablePortals, canMoveDemon, cloneState, directions, edge, exposeOpenWelds, initialState, opposite, portalPlayers, syncExteriorTemperature } from './engine';
 import type { Cell, Dataset, Demon, Direction, Level, State, World } from './types';
-import { depth, descendants } from './topology';
+import { address, depth, descendants } from './topology';
 import { portalUnlocked } from './level-labels';
 
 export interface Entry { parentId: string; portalKey: number; directions: Direction[] }
@@ -139,6 +139,26 @@ export function resetState(current: State, baseline: State, solved: string[]): S
   restored.cells.sort((a, b) => a.key - b.key);
   restored.pistons = structuredClone(pistons.filter(p => restored.cells.some(c => c.key === p.baseKey)));
   for (const c of restored.cells) if (c.portal && solved.includes(c.portal.target) && !retainedKeys.has(c.key)) Object.assign(c, c.portal.after);
+  const pistonKeys = new Set(restored.pistons?.flatMap(p => [p.baseKey, p.headKey]));
+  const sources = [baseline, current].map(state => ({ byKey: new Map(state.cells.map(c => [c.key, c])), byPosition: new Map(state.cells.map(c => [address(c), c])) }));
+  const rootCells = new Map(restored.cells.filter(c => c.container === undefined).map(c => [address(c), c]));
+  // Partial restoration exposes severed compound faces without changing exterior faces.
+  for (const c of restored.cells) {
+    if (c.container !== undefined || pistonKeys.has(c.key)) continue;
+    const source = sources[Number(retainedKeys.has(c.key))];
+    const original = source.byKey.get(c.key); if (!original) continue;
+    directions.forEach((d, dir) => {
+      if (edge(c, dir) !== 0 || edge(original, dir) !== 0) return;
+      const mate = source.byPosition.get(address({ x: original.x + d.x, y: original.y + d.y, container: original.container }));
+      if (!mate || edge(mate, opposite(dir)) !== 0) return;
+      const neighbor = rootCells.get(address({ x: c.x + d.x, y: c.y + d.y }));
+      if (!neighbor || neighbor.storesHeat && c.storesHeat && !pistonKeys.has(neighbor.key) && edge(neighbor, opposite(dir)) !== 0) {
+        // Revived neutral faces are solid; surviving and non-neutral cuts expose adhesion.
+        const face = c.temperature !== 0 || sources[1].byKey.has(c.key) ? 3 : 1;
+        c.edges |= face << (dir * 2);
+      }
+    });
+  }
   restored.solved = false; restored.phase = 'ready'; restored.frozen = restored.players.every(p => !canMoveDemon(p));
   return restored;
 }

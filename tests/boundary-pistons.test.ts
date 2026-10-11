@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { initialState, move, transferHeat, availablePortals, bodies, isSolved } from '../src/engine';
+import { initialState, move, transferHeat, availablePortals, bodies, isSolved, exteriorKeys } from '../src/engine';
 import { actuateBoundary, moveBoundaryDemons } from '../src/boundary-pistons';
 import { settleTurn } from '../src/pistons';
 import { resetState } from '../src/session';
@@ -24,6 +24,15 @@ test('an absent external load edge joins the back of a housing in either expansi
     assert.deepEqual(state.players.map(p => [p.x, p.y]), [[3, 3]]);
     assert.equal(state.pistons![0].expanded, expanded);
   }
+});
+
+test('an absent solid side face carries its neighboring housing along the piston axis', () => {
+  const l = room([housing(4, 2), { ...block(5, 3, 2), edges: 0x54 }],
+    [{ ...piston(0, true), direction: 3 }], [{ x: 5, y: 4 }]), state = initialState(l);
+  assert.equal(bodies(state.cells, state.pistons).length, 1);
+  assert.deepEqual(moveBoundaryDemons(l, state, 3), { moved: true, pushed: true });
+  assert.deepEqual(state.cells.map(c => [c.x, c.y]), [[4, 2], [5, 2]]);
+  assert.equal(state.pistons![0].expanded, true);
 });
 
 test('supported housings absorb attached lateral loads before hot expansion displaces the demon', () => {
@@ -83,6 +92,22 @@ test('an absent transparent face retains its connection to an insulating fixed w
     const t = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][sideways];
     state.players = [{ x: 4 - t.x, y: 3 - t.y, temperature: 0 }];
     assert.deepEqual(moveBoundaryDemons(l, state, sideways), { moved: false, pushed: false });
+  }
+});
+
+test('glass attached to an insulating exterior face retains its finite thermal component', () => {
+  for (const direction of [0, 1, 2, 3] as const) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
+    const [x, y] = [[0, 3], [4, 6], [8, 3], [4, 0]][direction];
+    const load = { ...block(x - d.x, y - d.y, 2), storesHeat: false, edges: 0x55 & ~(3 << (direction * 2)) };
+    const wall = { ...block(x, y), fixed: true, edges: 2 << (((direction + 2) % 4) * 2) };
+    const t = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][(direction + 1) % 4];
+    const reservoir = block(load.x + t.x, load.y + t.y, 2);
+    const l = room([load, wall, reservoir], []), state = initialState(l); state.cells[0].edges = load.edges;
+    assert.ok(bodies(state.cells).some(g => g.some(c => c.key === 0) && g.some(c => c.key === 1)));
+    assert.deepEqual([...exteriorKeys(l, state)], [1]);
+    transferHeat(l, state);
+    assert.equal(state.cells[0].temperature, 2); assert.equal(state.cells[1].temperature, 0); assert.equal(state.cells[2].temperature, 2);
   }
 });
 
