@@ -131,7 +131,7 @@ class MotionPlan {
       return p.model === 'boundary' && p.expanded && base && !this.compressed.has(base.key) &&
         this.direction !== p.direction && this.direction !== opposite(p.direction) &&
         cell.container === base.container && cell.x === base.x + d.x && cell.y === base.y + d.y &&
-        (edge(cell, opposite(p.direction)) === 0 || edge(cell, opposite(p.direction)) === 3 || edge(base, p.direction) === 3) &&
+        edge(cell, opposite(p.direction)) === 0 &&
         !this.state.cells.some(c => c.container === base.key) && !this.state.players.some(p => p.container === base.key);
     });
     for (const piston of absorbers) {

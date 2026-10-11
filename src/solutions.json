@@ -1300,15 +1300,15 @@
     {
       "levelId": "4bb8c038",
       "label": "7-14",
-      "actions": "D L D R2 RESET U ENTER(4bb8c038) D R D R RESET D2 R3 D R U4 RESET L",
       "origin": "search",
-      "expected": {
-        "moves": 2,
-        "pushes": 0
-      },
       "start": {
         "levelId": "4bb8c038",
         "completion": "previous-numbered"
+      },
+      "actions": "L D2 R2 RESET U ENTER(4bb8c038) R D2 R RESET U ENTER(4bb8c038) R D2 R2 D R U RESET D2 R4 U3 RESET L",
+      "expected": {
+        "moves": 3,
+        "pushes": 0
       }
     },
     {
@@ -1577,6 +1577,21 @@
       }
     },
     {
+      "levelId": "bd6210c9",
+      "label": "9-18",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1L6ZcYmEfc/",
+      "start": {
+        "levelId": "bd6210c9",
+        "completion": "previous-numbered"
+      },
+      "actions": "R D4 L U L R U RESET L U2 D3 U2 R2 U2 R3 D2 L R U L2 U L RESET L D2 R2 U L D2 L UNDO U L2 D R D R U2 L2 U R U R D2 R D L D2 R3 U L R U2 L R D3 U3 L2 R2 D3 L3 U R D R U3 D2 L4 U2 R2 D R U D R2 U3 L D2 U L2 D L2 U R U R D R D RESET L D2 L2 U R2 U D2 R U L U RESET D L R U2 L2 D R D R U R3 U2 L D R D L2 R2 D2 L3 R U4 L2 D R2 L D R D L R D2 L3 U R2 L U R U2 L2 D R U D R U R L D2 R2 U RESET R U2 L D RESET R4 D2 U2 L4 R3 UNDO22 D L UNDO2 L U2 R D RESET R U R3 D5 UNDO L U L U L D R3 U L2 R U2 L2 D R2 UNDO U R D4 U L2 D2 R2 U4 L4 D R2 U R D L D R3 L2 U R U R D2 L3 D2 R U L U R2 U R D U2 L4 D2 L D R4 U R3 RESET U3 R",
+      "expected": {
+        "moves": 4,
+        "pushes": 1
+      }
+    },
+    {
       "levelId": "2a1b2a01",
       "label": "9-19",
       "origin": "video",
@@ -1589,6 +1604,21 @@
       "expected": {
         "moves": 65,
         "pushes": 18
+      }
+    },
+    {
+      "levelId": "f7c42ebd",
+      "label": "9-20",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1L6ZcYmEfc/",
+      "start": {
+        "levelId": "f7c42ebd",
+        "completion": "previous-numbered"
+      },
+      "actions": "R D R U R U L2 U2 L2 R2 D L U L3 D4 R2 U D L2 U2 R2 U2 R3 D L2 UNDO2 U L2 R2 D L3 RESET L D L U L U R D R U R2 U2 L4 D R2 U R2 D R2 D2 L U R L D L2 U L U2 R4 D2 L RESET ENTER(f7c42ebd) L U3 R UNDO L D2 L D R2 L U3 R2 D U R2 D2 R D L D L UNDO R U4 L3 D2 U R3 D4 L2 ENTER(f7c42ebd) L2 U2 R2 U R3 D4 L2 U L R U L2 U L D R2 UNDO L2 D RESET U2 R2 D2 R U UNDO4 U L2 D3 R2 L U3 R5 D4 L2 U RESET L R U R U L2 D2 L D L U R U RESET D2 L2 U3 R D L D R2 L2 U2 R3 U R2 D L U L D L D R2 D R L D R2 U L2 U3 R2 ENTER(f7c42ebd) U R U R UNDO D2 R2 U3 RESET ENTER(f7c42ebd) U3 R3 U3 UNDO R2 U2 L2 D L UNDO R4 U R D5 L D R2 U R U RESET R",
+      "expected": {
+        "moves": 94,
+        "pushes": 20
       }
     },
     {

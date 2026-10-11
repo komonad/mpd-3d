@@ -58,6 +58,34 @@ test('lateral absorption requires rear support and an attached opening face', ()
   }
 });
 
+test('an adhesive opening face cannot absorb its load through a perpendicular push', () => {
+  for (const direction of [0, 1, 2, 3] as const) {
+    const vectors = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }], d = vectors[direction];
+    const sideways = ((direction + 1) % 4) as typeof direction, t = vectors[sideways];
+    const load = { ...block(4 + d.x, 3 + d.y), edges: 0x55 | (3 << (((direction + 2) % 4) * 2)) };
+    const l = room([housing(4, 1), load, { ...block(4 - d.x, 3 - d.y), fixed: true, edges: 0xaa },
+      { ...block(4 + d.x + t.x, 3 + d.y + t.y), fixed: true, edges: 0xaa }],
+      [{ ...piston(0, true), direction }], [{ x: 4 + d.x - t.x, y: 3 + d.y - t.y }]);
+    const state = initialState(l), before = structuredClone(state);
+    assert.deepEqual(moveBoundaryDemons(l, state, sideways), { moved: false, pushed: false });
+    assert.deepEqual(state, before);
+  }
+});
+
+test('an absent transparent face retains its connection to an insulating fixed wall', () => {
+  for (const direction of [0, 1, 2, 3] as const) {
+    const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
+    const glass = { ...block(4, 3), storesHeat: false, edges: 0xaa & ~(3 << (direction * 2)) };
+    const l = room([glass, { ...block(4 + d.x, 3 + d.y), fixed: true, edges: 0xaa }], []);
+    const state = initialState(l); state.cells[0].edges = glass.edges;
+    assert.equal(bodies(state.cells).length, 1);
+    const sideways = ((direction + 1) % 4) as typeof direction;
+    const t = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][sideways];
+    state.players = [{ x: 4 - t.x, y: 3 - t.y, temperature: 0 }];
+    assert.deepEqual(moveBoundaryDemons(l, state, sideways), { moved: false, pushed: false });
+  }
+});
+
 test('passive compression exchanges cold for neutral and every other temperature for hot', () => {
   for (const direction of [0, 1, 2, 3] as const) for (const temperature of [-1, 0, 1, 2] as const) for (const glass of [false, true]) {
     const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];

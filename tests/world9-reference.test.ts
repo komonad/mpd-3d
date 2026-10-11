@@ -120,6 +120,49 @@ test('9-19 absorbs its transparent load laterally before expansion clears the fi
   assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 14).map(c => [c.x, c.y, c.temperature]), [[10, 1, 0]]);
 });
 
+test('9-18 keeps its retentive demon inside the blocked housing until reset', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-18')!);
+  assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1L6ZcYmEfc/');
+  run.seek(run.operations.length - 6);
+  assert.deepEqual(run.simulation.session.current.players.map(p => [p.x, p.y, p.temperature]), [[7, 4, 2]]);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true);
+  const stored = run.simulation.session.current;
+  assert.deepEqual(stored.players.map(p => [p.x, p.y, p.temperature, p.container]), [[8, 4, 2, 18]]);
+  assert.equal(stored.pistons!.find(p => p.baseKey === 18)!.expanded, false);
+  assert.deepEqual(stored.cells.filter(c => [17, 29, 35].includes(c.key)).map(c => [c.key, c.x, c.y, c.container]),
+    [[17, 6, 6, undefined], [29, 6, 5, undefined], [35, 7, 4, undefined]]);
+  assert.equal(run.advance()?.command, 'RESET'); assert.equal(run.accepted, true);
+  const reset = run.simulation.session.current;
+  assert.deepEqual(reset.players.map(p => [p.x, p.y, p.temperature, p.container]), [[8, 4, 2, undefined]]);
+  assert.deepEqual(reset.cells.filter(c => c.key === 18).map(c => [c.x, c.y, c.temperature]), [[5, 2, 0]]);
+  run.seek(run.operations.length); assert.equal(run.passed, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 14).map(c => [c.x, c.y, c.temperature]), [[10, 1, 0]]);
+});
+
+test('9-20 restores retentive compressed housings before its final thermal cascade', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-20')!);
+  assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1L6ZcYmEfc/');
+  run.seek(run.operations.length - 2);
+  assert.deepEqual(run.simulation.session.current.players.map(p => [p.x, p.y, p.temperature]), [[14, 6, 2]]);
+  assert.equal(run.advance()?.command, 'RESET'); assert.equal(run.accepted, true);
+  const reset = run.simulation.session.current;
+  assert.equal(reset.outside, 1);
+  assert.deepEqual(reset.cells.filter(c => [90, 99, 105, 112].includes(c.key)).map(c => [c.key, c.temperature]), [[90, 2], [99, 2], [105, 2], [112, 2]]);
+  assert.ok(reset.pistons!.every(p => !p.expanded));
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true); assert.equal(run.passed, true);
+  const state = run.simulation.session.current;
+  assert.deepEqual(state.cells.filter(c => c.key === 105).map(c => [c.x, c.y, c.temperature]), [[16, 5, 2]]);
+  assert.deepEqual(state.players.map(p => [p.x, p.y, p.temperature]), [[15, 6, 0]]);
+  assert.ok(state.turnFrames!.length > 2);
+  for (const frame of state.turnFrames!) {
+    assert.equal(new Set(frame.cells.map(address)).size, frame.cells.length);
+    for (const cell of frame.cells.filter(c => c.container !== undefined)) {
+      const parent = frame.cells.find(c => c.key === cell.container)!;
+      assert.deepEqual([cell.x, cell.y], [parent.x, parent.y]);
+    }
+  }
+});
+
 test('9-24 preserves carried inventories through the final chain of thermal actions', { skip: !data }, () => {
   const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-24')!);
   assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1mRtQzyEK4/');

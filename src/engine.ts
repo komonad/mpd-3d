@@ -38,8 +38,10 @@ export function bodies(cells: Cell[], pistons: State['pistons'] = []): Cell[][] 
     const a = edge(c, contact.direction), b = edge(n, opposite(contact.direction));
     const stickyInterior = contact.internal && ([0, 1, 2, 3].some(d => d !== contact.direction && d !== opposite(contact.direction) && (edge(c, d) === 3 || edge(n, d) === 3)));
     // Absent faces retain their external connections to housings and transparent neighbors.
-    const housingJoin = !contact.internal && pistons?.some(p => p.model === 'boundary' && (p.baseKey === c.key && b === 0 || p.baseKey === n.key && a === 0));
-    const transparentJoin = !contact.internal && (a === 0 && !n.storesHeat || b === 0 && !c.storesHeat);
+    const housingJoin = !contact.internal && pistons?.some(p => p.model === 'boundary' &&
+      (contact.direction === p.direction || opposite(contact.direction) === p.direction) &&
+      (p.baseKey === c.key && b === 0 || p.baseKey === n.key && a === 0));
+    const transparentJoin = !contact.internal && (a === 0 || b === 0) && (!c.storesHeat || !n.storesHeat);
     if (contact.internal ? stickyInterior : a === 3 || b === 3 || housingJoin || transparentJoin || a === 0 && b === 0) {
       if (!links.has(c.key)) links.set(c.key, new Set());
       if (!links.has(n.key)) links.set(n.key, new Set());
