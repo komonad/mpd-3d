@@ -272,7 +272,8 @@ export function actuateBoundary(level: Level, state: State, candidate: Piston): 
   if (!base) return false;
   if (!piston.expanded && base.temperature === 1) {
     const child = trial.cells.find(c => c.container === base.key), player = trial.players.findIndex(p => p.container === base.key);
-    const plan = new MotionPlan(level, trial, piston.direction, true);
+    // Expansion reserves the housing against translation while dependencies may store it in another cavity.
+    const plan = new MotionPlan(level, trial, piston.direction, true, true, base.key);
     if (child && !plan.moveCell(child) || player >= 0 && !plan.movePlayer(player)) {
       // When the load is immovable, the housing can retreat while the load stays in place.
       const fallback = cloneState(state), housing = fallback.cells.find(c => c.key === base.key)!;
@@ -286,11 +287,10 @@ export function actuateBoundary(level: Level, state: State, candidate: Piston): 
     }
     plan.apply();
     const occupant = child ?? (player >= 0 ? trial.players[player] : undefined);
-    // A load carried with its housing has no relative expansion or thermal expenditure.
     const carried = occupant && address(occupant) === address(base);
-    if (carried) occupant.container = base.key;
-    piston.expanded = !carried;
-    if (!carried) base.temperature = 0;
+    if (carried) return false;
+    piston.expanded = true;
+    base.temperature = 0;
     Object.assign(state, trial); return true;
   }
   if (piston.expanded && base.temperature === -1) {

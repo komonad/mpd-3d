@@ -44,7 +44,7 @@ A supported expanded housing can absorb an opening-side load with an absent rear
 
 Released piston inventories expose unpaired absent edges as adhesive faces before heat balance and subsequent actuation. Their insulating faces retain their edge codes. Ordinary rigid-body translation preserves its existing surface codes.
 
-Active extension evaluates the final relative position of the housing and its inventory. If a dependency translates both to the same on-grid address, the inventory remains contained and the housing remains compressed. Such carriage does not spend an expansion impulse. A following heat phase can continue the thermal dependency chain. In 9-24, the final rightward push leaves the demon stationary while chained actuations carry the housings across the passage and place the third housing on the goal.
+Active extension reserves the housing against translation while planning the inventory's outward motion. Dependencies can store the housing inside another compressed piston. The active housing expands and consumes its hot impulse; the next actuator can release it while passively compressing it around its own load. An empty compressed nested piston exposes no surface through the outer opening. Contact lookup follows its exposed inventory recursively. In 9-24, the two rightward housings alternate expansion and compression as the assembly advances. Each expansion leaves its housing neutral before the following heat balance. The demon stays stationary during this chain, and the third housing reaches the goal.
 
 ## Validation boundaries
 
@@ -75,7 +75,7 @@ World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibi
 | 9-19 | 293.80–294.80 s | Lateral compression and expansion clear the demon's passage while the glass remains at `(8, 4)` above the expanded housing at `(8, 5)`; the neutral block reaches `(10, 1)`. Intermediate native housing temperatures remain unverified. |
 | 9-20 | 431.70–432.71 s | Reset restores the retained compressed housings before the final rightward push and thermal cascade place the first housing at `(16, 5)`. |
 | 9-22 | 726.57 s | An upward push carries the transparent goal block together with the cold load above it. |
-| 9-24 | 888.97 s | The final rightward push starts a chain of thermal actions; every phase preserves inventory layers and the demon's position. |
+| 9-24 | 888.70–890.90 s | The final rightward push starts alternating strokes of the first two housings. One expands inside the other; the next releases and compresses it. Both consume heat on expansion, while inventory layers and the demon's position remain valid. |
 | 9-25 | 912.37 s | The final turn places the retained solid load on the goal and leaves both surviving housings expanded. |
 
 These checks validate the simulator's contracts and selected original puzzles. They do not constitute exhaustive differential testing against the executable.

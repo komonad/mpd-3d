@@ -50,7 +50,8 @@ export function contacts(cells: Cell[], pistons: Piston[] = []): Contact[] {
         const d = directions[p.direction];
         const front = lookup.get(address({ x: parent.x + d.x, y: parent.y + d.y, container: parent.container }));
         const surface = front && exposed(front, opposite(p.direction));
-        if (surface) add(a, surface, p.direction);
+        const contentSurface = exposed(a, p.direction);
+        if (contentSurface && surface) add(contentSurface, surface, p.direction);
       }
     }
     directions.forEach((d, dir) => {

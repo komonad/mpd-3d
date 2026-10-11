@@ -186,7 +186,7 @@ test('9-20 restores retentive compressed housings before its final thermal casca
   }
 });
 
-test('9-24 preserves carried inventories through the final chain of thermal actions', { skip: !data }, () => {
+test('9-24 alternates actuator strokes and thermal expenditure while preserving inventory layers', { skip: !data }, () => {
   const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-24')!);
   assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1mRtQzyEK4/');
   run.seek(run.operations.length - 1);
@@ -197,7 +197,18 @@ test('9-24 preserves carried inventories through the final chain of thermal acti
   assert.deepEqual(state.cells.filter(c => [92, 93].includes(c.key)).map(c => [c.x, c.y, c.container]), [[20, 5, undefined], [20, 5, 92]]);
   assert.equal(state.pistons!.find(p => p.baseKey === 92)!.expanded, false);
   assert.deepEqual(state.cells.filter(c => c.key === 118).map(c => [c.x, c.y]), [[23, 5]]);
-  assert.ok(state.turnFrames!.length >= 20);
+  const strokes = state.turnFrames!.filter(frame => frame.phase === 'motion').slice(1, -1);
+  assert.equal(strokes.length, 18);
+  strokes.forEach((frame, index) => {
+    const first = frame.cells.find(c => c.key === 92)!, second = frame.cells.find(c => c.key === 94)!;
+    const firstStroke = index % 2 === 0, step = Math.floor(index / 2);
+    assert.deepEqual([first.x, first.temperature, first.container, frame.pistons.find(p => p.baseKey === 92)!.expanded],
+      firstStroke ? [11 + step, 0, 94, true] : [12 + step, 1, undefined, false]);
+    assert.deepEqual([second.x, second.temperature, frame.pistons.find(p => p.baseKey === 94)!.expanded],
+      firstStroke ? [11 + step, index ? 1 : 2, false] : [11 + step, 0, true]);
+    assert.deepEqual(frame.cells.filter(c => c.key === 93).map(c => [c.x, c.container]),
+      firstStroke ? [[12 + step, undefined]] : [[12 + step, 92]]);
+  });
   for (const frame of state.turnFrames!) {
     assert.deepEqual(frame.players.map(p => [p.x, p.y]), [[9, 6]]);
     assert.equal(new Set(frame.cells.map(address)).size, frame.cells.length);

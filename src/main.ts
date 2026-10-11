@@ -216,6 +216,7 @@ async function step(direction: Direction): Promise<void> {
       if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
       if (token !== playback) return;
       scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     }
     if (token !== playback) return; resolving = state.solved;
   }
@@ -293,6 +294,7 @@ async function showSolution(current: Session, snap: boolean): Promise<void> {
     const delay = at - (performance.now() - started); if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
     if (token !== playback) return;
     scene.update({ ...state, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
   }
   if (token !== playback) return;
   scene.update(state, false, pushing ? 'pushing' : 'walking');

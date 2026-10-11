@@ -397,6 +397,18 @@ test('inventories facing each other conduct through both open cavities', () => {
   transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0, 0, 0]);
 });
 
+test('an empty compressed nested cavity exposes no external thermal or mechanical contact', () => {
+  const l = room([{ ...housing(), edges: 0x55 }, { ...housing(), edges: 0x55, container: 0 },
+    { ...block(5, 3, 1), edges: 0x54 }], [piston(0), piston(1)]), s = initialState(l);
+  transferHeat(l, s);
+  assert.deepEqual(s.cells.map(c => c.temperature), [0, 0, 1]);
+  assert.equal(bodies(s.cells, s.pistons).length, 3);
+  s.pistons![1].expanded = true;
+  transferHeat(l, s);
+  assert.deepEqual(s.cells.map(c => c.temperature), [1, 1, 1]);
+  assert.deepEqual(bodies(s.cells, s.pistons).map(group => group.map(c => c.key)), [[0], [1, 2]]);
+});
+
 test('a portal in a compressed housing is accessible only through its opening', () => {
   const target = { ...block(4, 3, 0, 0), portal: { target: 'next', shortcut: false, before: housing(), after: housing() } };
   const l = room([housing(), target], [piston(0)], [{ x: 5, y: 3 }, { x: 4, y: 2 }]), s = initialState(l);
