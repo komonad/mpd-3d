@@ -20,7 +20,7 @@ import { pickBodyCell } from './cell-picking';
 import type { Cell, Level, Piston, State, Temperature } from './types';
 
 const palette = { wall: '#aab1b6', neutral: '#bec5ca', hot: '#d94e28', cold: '#298fcd', demon: '#b9c0c5', floor: '#eef0ec' };
-const thermalColor = (t: Temperature) => t === 1 ? palette.hot : t === -1 ? palette.cold : t === 2 ? '#55a779' : palette.neutral;
+const thermalColor = (t: Temperature) => t === 1 ? palette.hot : t === -1 ? palette.cold : t === 2 ? '#45b577' : palette.neutral;
 
 interface DemonVisual {
   group: THREE.Group; target: THREE.Vector3; material: THREE.MeshStandardMaterial; temperature: Temperature;
@@ -56,7 +56,7 @@ export class GameScene {
   private board = new THREE.Group();
   private pieces = new Map<number, THREE.Group>();
   private demons: DemonVisual[] = [];
-  private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -1 });
   private readonly textures = surfaceTextures();
   private readonly sharedTextures = new Set<THREE.Texture>([this.adhesiveMaterial.map!, ...Object.values(this.textures)]);
   private parts = new THREE.Group();
@@ -228,7 +228,8 @@ export class GameScene {
       g.userData.surfaceLayer = layer;
       const insulation = this.physical('#fcfcfa'); insulation.roughness = 0.9; insulation.metalness = insulation.clearcoat = 0;
       insulation.userData.transmissionBarrier = true;
-      insulation.polygonOffset = true; insulation.polygonOffsetFactor = -4; insulation.polygonOffsetUnits = -4;
+      // A constant depth bias separates coplanar layers without pulling grazing faces through occluders.
+      insulation.polygonOffset = true; insulation.polygonOffsetFactor = 0; insulation.polygonOffsetUnits = -1;
       this.mesh(layer, [insulation, this.adhesiveMaterial], g);
     } else layer.dispose();
     for (const cell of cells) {
