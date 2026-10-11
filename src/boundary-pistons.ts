@@ -54,7 +54,7 @@ class MotionPlan {
     return { x: entity.x + d.x, y: entity.y + d.y };
   }
 
-  private resolve(destination: Destination, moving: Set<number>, ignoredPlayer = -1): Destination | null {
+  private resolve(destination: Destination, moving: Set<number>, ignoredPlayer = -1, forcePlayers = this.forcePlayers || moving.size > 0): Destination | null {
     if (destination.x < 0 || destination.y < 0 || destination.x >= this.level.width || destination.y >= this.level.height) return null;
     let obstacle = this.state.cells.find(c => address(c) === address(destination) && !moving.has(c.key) && !this.visiting.has(c.key));
     if (obstacle && this.cells.has(obstacle.key)) obstacle = undefined;
@@ -74,7 +74,7 @@ class MotionPlan {
     for (let i = 0; i < this.state.players.length; i++) {
       const p = this.state.players[i];
       if (i === ignoredPlayer || this.players.has(i) || address(p) !== address(destination)) continue;
-      if ((!this.forcePlayers && !canMoveDemon(p)) || !this.movePlayer(i)) return null;
+      if ((!forcePlayers && !canMoveDemon(p)) || !this.movePlayer(i, forcePlayers)) return null;
     }
     return destination;
   }
@@ -192,13 +192,13 @@ class MotionPlan {
     return true;
   }
 
-  movePlayer(index: number): boolean {
+  movePlayer(index: number, forcePlayers = this.forcePlayers): boolean {
     if (this.players.has(index)) return true;
     const destination = this.destination(this.state.players[index]);
     if (!destination) return false;
     // A pushing demon vacates its current address before the rigid body occupies it.
     this.players.set(index, destination);
-    const resolved = this.resolve(destination, new Set(), index);
+    const resolved = this.resolve(destination, new Set(), index, forcePlayers);
     if (!resolved) { this.players.delete(index); return false; }
     this.players.set(index, resolved); return true;
   }

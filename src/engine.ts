@@ -8,11 +8,11 @@ export { directions, edge, opposite, positionKey } from './topology';
 export const cloneState = (state: State): State => { const { turnFrames: _, ...rest } = state; return structuredClone(rest); };
 export const canMoveDemon = (player: State['players'][number]): boolean => player.temperature !== 1 && player.awake !== false;
 
-export function exposeOpenWelds(level: Pick<Level, 'width' | 'height'>, state: State): void {
+export function exposeOpenWelds(level: Pick<Level, 'width' | 'height'>, state: State, onlyKeys?: ReadonlySet<number>): void {
   const lookup = new Map(state.cells.filter(c => c.container === undefined).map(c => [`${c.x},${c.y}`, c]));
   const pistonKeys = new Set(state.pistons?.flatMap(p => [p.baseKey, p.headKey]));
   for (const c of state.cells) {
-    if (c.container !== undefined || pistonKeys.has(c.key)) continue;
+    if (c.container !== undefined || pistonKeys.has(c.key) || onlyKeys && !onlyKeys.has(c.key)) continue;
     for (const [dir, d] of directions.entries()) {
       if (edge(c, dir) !== 0) continue;
       const x = c.x + d.x, y = c.y + d.y;
@@ -37,9 +37,9 @@ export function bodies(cells: Cell[], pistons: State['pistons'] = []): Cell[][] 
     const c = lookup.get(contact.a)!, n = lookup.get(contact.b)!;
     const a = edge(c, contact.direction), b = edge(n, opposite(contact.direction));
     const stickyInterior = contact.internal && ([0, 1, 2, 3].some(d => d !== contact.direction && d !== opposite(contact.direction) && (edge(c, d) === 3 || edge(n, d) === 3)));
-    // An absent load edge couples to the moving face independently of its thermal coating.
-    const movingFace = !contact.internal && pistons?.some(p => p.model === 'boundary' && p.expanded && (p.baseKey === c.key && p.direction === contact.direction && b === 0 || p.baseKey === n.key && p.direction === opposite(contact.direction) && a === 0));
-    if (contact.internal ? stickyInterior : a === 3 || b === 3 || movingFace || a === 0 && b === 0) {
+    // Absent load edges couple to exposed housing faces in either expansion state.
+    const housingJoin = !contact.internal && pistons?.some(p => p.model === 'boundary' && (p.baseKey === c.key && b === 0 || p.baseKey === n.key && a === 0));
+    if (contact.internal ? stickyInterior : a === 3 || b === 3 || housingJoin || a === 0 && b === 0) {
       if (!links.has(c.key)) links.set(c.key, new Set());
       if (!links.has(n.key)) links.set(n.key, new Set());
       links.get(c.key)!.add(n.key); links.get(n.key)!.add(c.key);
@@ -128,7 +128,7 @@ export function move(level: Level, state: State, direction: Direction): State | 
     const result = moveBoundaryDemons(level, next, direction);
     if (!result.moved) return null;
     next.moves++; if (result.pushed) next.pushes++;
-    settleTurn(level, next); next.solved = next.phase === 'ready' && isSolved(level, next);
+    settleTurn(level, next, state); next.solved = next.phase === 'ready' && isSolved(level, next);
     return next;
   }
   let didMove = false, pushed = false;
@@ -150,7 +150,7 @@ export function move(level: Level, state: State, direction: Direction): State | 
   }
   if (!didMove) return null;
   next.moves++; if (pushed) next.pushes++;
-  settleTurn(level, next);
+  settleTurn(level, next, state);
   next.solved = next.phase === 'ready' && isSolved(level, next);
   return next;
 }

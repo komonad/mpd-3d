@@ -1398,6 +1398,21 @@
       "source": "https://www.bilibili.com/video/BV1YzLDzXEXJ/"
     },
     {
+      "levelId": "defbbb32",
+      "label": "9-5",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1mRtQzyEK4/",
+      "start": {
+        "levelId": "29a4c430",
+        "completion": "previous-numbered"
+      },
+      "actions": "ENTER(51e4ab98) EXIT L ENTER(29a4c430) EXIT R2 ENTER(51e4ab98) EXIT R D R U R2 RESET R L R2 D L U L2 RESET R2 D R U EXIT R4 ENTER(c4157b4b) ENTER(defbbb32) R5 L5 RESET R4 ENTER(5c96029d) EXIT3 R D R D L D2 U ENTER(5c96029d) EXIT L2 ENTER(defbbb32) R2 L RESET R2 RESET L2 RESET R5 RESET R2 L RESET L4 ENTER(defbbb32) R5 RESET R5",
+      "expected": {
+        "moves": 11,
+        "pushes": 11
+      }
+    },
+    {
       "levelId": "54a983b6",
       "label": "9-7",
       "origin": "video",
@@ -1440,6 +1455,36 @@
       "expected": {
         "moves": 1,
         "pushes": 0
+      }
+    },
+    {
+      "levelId": "7677b9de",
+      "label": "9-10",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1mRtQzyEK4/",
+      "start": {
+        "levelId": "7677b9de",
+        "completion": "previous-numbered"
+      },
+      "actions": "U R5 D L3 U L3 D R U R2 D2 L2 D R RESET D R4 UNDO U R U3 L D R D L5 R4 D2 L U R U L3 R U2 L D R D L D R2 RESET U L R3 U L3 U L D L D U R D L D U R D L2 D R3 U2 R3 D RESET D R U",
+      "expected": {
+        "moves": 3,
+        "pushes": 1
+      }
+    },
+    {
+      "levelId": "4b7875c4",
+      "label": "9-11",
+      "origin": "search",
+      "source": "https://www.bilibili.com/video/BV1ewbW6cEx7/",
+      "start": {
+        "levelId": "4b7875c4",
+        "completion": "previous-numbered"
+      },
+      "actions": "U2 R3 D L U L D2 L D R RESET D R U L U R2 RESET R RESET R RESET D L U R U2 L2 D R U R2 D RESET L4 U L D2 U R3 D2 R U L U2 R3 D L4 U L4 D3 R4 D R L4 U3 R4 U R D L D R RESET R RESET R D",
+      "expected": {
+        "moves": 2,
+        "pushes": 2
       }
     },
     {

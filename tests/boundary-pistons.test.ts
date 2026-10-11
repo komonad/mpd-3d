@@ -14,6 +14,33 @@ const piston = (baseKey: number, expanded = false, order = 0): Piston => ({ base
 const room = (cells: Level['cells'], pistons: Piston[], players: Level['players'] = [{ x: 1, y: 1 }]): Level => ({ id: 'piston', label: 'piston', category: 'lab', width: 9, height: 7, cells, pistons, players, goals: [], tail: [0] });
 const housing = (x = 4, temperature: Temperature = 0, fixed = false) => ({ ...block(x, 3, temperature), edges: 0xaa, fixed });
 
+test('an absent external load edge joins the back of a housing in either expansion state', () => {
+  for (const expanded of [false, true]) {
+    const l = room([housing(4, 2), { ...block(3, 3, 2), storesHeat: false, edges: 0x8a }], [piston(0, expanded)], [{ x: 3, y: 4 }]);
+    const state = initialState(l);
+    assert.equal(bodies(state.cells, state.pistons).length, 1);
+    assert.deepEqual(moveBoundaryDemons(l, state, 3), { moved: true, pushed: true });
+    assert.deepEqual(state.cells.map(c => [c.x, c.y]), [[4, 2], [3, 2]]);
+    assert.deepEqual(state.players.map(p => [p.x, p.y]), [[3, 3]]);
+    assert.equal(state.pistons![0].expanded, expanded);
+  }
+});
+
+test('released inventories expose adhesive edges while preserving insulation', () => {
+  const l = room([housing(4, 2, true), { ...block(4, 3, 0, 0), storesHeat: false, edges: 0xa8 }, { ...block(5, 2, 2), edges: 0xaa }], [piston(0)], [{ x: 6, y: 4 }]);
+  const before = initialState(l), state = structuredClone(before);
+  state.pistons![0].expanded = true;
+  state.cells[1].x = 6; delete state.cells[1].container;
+  settleTurn(l, state, before);
+  assert.equal(state.cells[1].edges, 0xab);
+  const contact = move(l, state, 3)!;
+  assert.ok(bodies(contact.cells, contact.pistons).some(body => body.some(c => c.key === 1) && body.some(c => c.key === 2)));
+  assert.deepEqual(contact.cells.slice(1).map(c => c.temperature), [0, 2]);
+  const next = move(l, contact, 3)!;
+  assert.deepEqual(next.cells.slice(1).map(c => [c.x, c.y]), [[6, 1], [5, 1]]);
+  assert.deepEqual(next.cells.slice(1).map(c => c.temperature), [0, 2]);
+});
+
 test('nested hot pistons expand within one turn in either actuator order', () => {
   for (const innerFirst of [false, true]) {
     const l = room([housing(4, 1, true), { ...housing(4, 1), container: 0 }, block(4, 3, 0, 1)], [piston(0, false, innerFirst ? 2 : 0), piston(1, false, innerFirst ? 0 : 2)]), s = initialState(l);

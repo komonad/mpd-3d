@@ -28,7 +28,11 @@ Entrance label construction at `0x1400582d0` selects the display mode in `0x1400
 
 Piston RTTI exposes a block-property object, an expansion flag at `0xf8`, and an optional contained object at `0x100`. On-grid and in-piston positions are separate native position classes. Piston motion is a relative change between housing and load, with explicit support checks. Active actions follow piston order; passive actions follow mechanical support. The native planner at `0x14006a680` constructs and resolves a dependency graph. The simulator's support-distance planner covers common chains; parity of every branched or cyclic graph remains unverified.
 
-Ordinary pushes attempt translation of the complete loaded body before relative piston motion. Cold actuation reserves the housing while pulling its load; if that pull is blocked, the advancing housing reserves the supported load while storing it. A compressed housing can retreat from supported inventory and extend. Hot expansion keeps contained inventory attached during retreat planning, then exposes it when applying the completed plan. This preserves layered occupancy and the housing's external body connections during dependency lookup. Compound motion treats the pushing demon's source address and the source addresses of dependent moving bodies as vacated. Other active demons can vacate a translating body's destinations as part of the same input. Each demon moves once per turn. Sleeping or overheated demons remain obstacles to ordinary movement; a thermal actuator can displace them mechanically.
+Ordinary pushes attempt translation of the complete loaded body before relative piston motion. Cold actuation reserves the housing while pulling its load; if that pull is blocked, the advancing housing reserves the supported load while storing it. A compressed housing can retreat from supported inventory and extend. Hot expansion keeps contained inventory attached during retreat planning, then exposes it when applying the completed plan. This preserves layered occupancy and the housing's external body connections during dependency lookup. Compound motion treats the pushing demon's source address and the source addresses of dependent moving bodies as vacated. Other active demons can vacate a translating body's destinations as part of the same input. Each demon moves once per turn. Sleeping or overheated demons cannot walk themselves or be displaced by direct demon contact. Translating blocks and thermal actuators can displace them mechanically.
+
+An absent edge on an external load joins the exposed housing face it touches, including the back face of a compressed housing. Expansion state and thermal coating do not remove this external mechanical connection. The compressed opening exposes inventory rather than a solid housing face.
+
+Released piston inventories expose unpaired absent edges as adhesive faces before heat balance and subsequent actuation. Their insulating faces retain their edge codes. Ordinary rigid-body translation preserves its existing surface codes.
 
 ## Validation boundaries
 
@@ -44,10 +48,12 @@ World 4 reference tests compare intermediate states with [the numbered-room walk
 | 4-16 | 417.60 s | 22 | The housing retreats from supported inventory; the heat frame precedes automatic retraction. |
 | 4-17 | 435.37 s | 41 | Cold actuation stores the load without translating the free housing. |
 
-World 9 reference tests compare [the updated 9-14 walkthrough](https://www.bilibili.com/video/BV1QugJ6PEMQ/), [the 9-17 walkthrough](https://www.bilibili.com/video/BV19vLUzmEGP/), and [the numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/).
+World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibili.com/video/BV1fVL9zTEXV/), [the updated 9-11 walkthrough](https://www.bilibili.com/video/BV1ewbW6cEx7/), [the updated 9-14 walkthrough](https://www.bilibili.com/video/BV1QugJ6PEMQ/), [the 9-17 walkthrough](https://www.bilibili.com/video/BV19vLUzmEGP/), and [the numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/).
 
 | Room | Video time | Checkpoint |
 | --- | --- | --- |
+| 9-5 | 28.60 s | The movable entrance advances right and mechanically displaces the overheated demon ahead of it. |
+| 9-11 | 15.23 s | An upward push moves the transparent frame and its attached compressed housing together. |
 | 9-14 | 2.67 s | Moving left from the retentive block leaves the demon at `(1, 2)` with neutral temperature. |
 | 9-17 | 6.53 s | Both demons and their enclosing frame advance right in one input. |
 | 9-25 | 912.37 s | The final turn places the retained solid load on the goal and leaves both surviving housings expanded. |

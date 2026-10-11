@@ -1,5 +1,5 @@
 import type { Cell, Direction, Level, Piston, State, TurnFrame } from './types';
-import { bodies, canMoveDemon, directions, positionKey, transferHeat } from './engine';
+import { bodies, canMoveDemon, directions, exposeOpenWelds, positionKey, transferHeat } from './engine';
 import { actuateBoundary } from './boundary-pistons';
 
 export function pushPlan(level: Level, state: State, x: number, y: number, direction: Direction, forcePlayers = false, ignoredPlayer = -1, ignoredCells = new Set<number>()): { cells: Set<number>; players: Set<number> } | null {
@@ -7,7 +7,7 @@ export function pushPlan(level: Level, state: State, x: number, y: number, direc
   groups.forEach(g => g.forEach(c => cellGroups.set(c.key, g)));
   const lookup = new Map(state.cells.filter(c => !ignoredCells.has(c.key)).map(c => [positionKey(c.x, c.y), c]));
   const cells = new Set<number>(), players = new Set<number>();
-  function visit(tx: number, ty: number): boolean {
+  function visit(tx: number, ty: number, displacePlayers = forcePlayers): boolean {
     if (tx < 0 || ty < 0 || tx >= level.width || ty >= level.height) return false;
     const obstacle = lookup.get(positionKey(tx, ty));
     if (obstacle && !cells.has(obstacle.key)) {
@@ -15,13 +15,13 @@ export function pushPlan(level: Level, state: State, x: number, y: number, direc
       if (group.some(c => c.fixed && !ignoredCells.has(c.key))) return false;
       if (group.some(c => !ignoredCells.has(c.key) && state.pistons?.some(p => p.expanded && p.headKey === c.key))) return false;
       group.forEach(c => { if (!ignoredCells.has(c.key)) cells.add(c.key); });
-      for (const c of group) if (!ignoredCells.has(c.key) && !visit(c.x + delta.x, c.y + delta.y)) return false;
+      for (const c of group) if (!ignoredCells.has(c.key) && !visit(c.x + delta.x, c.y + delta.y, true)) return false;
     }
     for (let i = 0; i < state.players.length; i++) {
       const p = state.players[i];
       if (i === ignoredPlayer || p.x !== tx || p.y !== ty || players.has(i)) continue;
-      if (!forcePlayers && !canMoveDemon(p)) return false;
-      players.add(i); if (!visit(tx + delta.x, ty + delta.y)) return false;
+      if (!displacePlayers && !canMoveDemon(p)) return false;
+      players.add(i); if (!visit(tx + delta.x, ty + delta.y, displacePlayers)) return false;
     }
     return true;
   }
@@ -91,15 +91,21 @@ const signature = (s: State) => JSON.stringify([s.cells.map(c => [c.key, c.x, c.
 export function captureFrame(state: State, phase: TurnFrame['phase']): TurnFrame {
   return structuredClone({ cells: state.cells, players: state.players, pistons: state.pistons ?? [], phase });
 }
-export function settleTurn(level: Level, state: State): void {
+export function settleTurn(level: Level, state: State, beforeMotion?: State): void {
   state.transient = false;
+  const inventoryKeys = new Set(level.cells.flatMap((c, key) => c.container === undefined ? [] : [key]));
+  for (const c of beforeMotion?.cells ?? []) if (c.container !== undefined) inventoryKeys.add(c.key);
+  for (const c of state.cells) if (c.container !== undefined) inventoryKeys.add(c.key);
+  exposeOpenWelds(level, state, inventoryKeys);
   const frames = [captureFrame(state, 'motion')];
   transferHeat(level, state); frames.push(captureFrame(state, 'heat'));
   if (!state.pistons?.length) { state.phase = 'ready'; state.turnFrames = frames; return; }
   state.phase = 'ready'; const seen = new Set([signature(state)]);
   for (let step = 0; step < 128; step++) {
+    for (const c of state.cells) if (c.container !== undefined) inventoryKeys.add(c.key);
     const next = [...(state.pistons ?? [])].sort((a, b) => a.order - b.order).find(p => actuate(level, state, p));
     if (!next) { state.turnFrames = frames; return; }
+    exposeOpenWelds(level, state, inventoryKeys);
     frames.push(captureFrame(state, 'motion')); transferHeat(level, state); frames.push(captureFrame(state, 'heat'));
     const current = signature(state);
     if (seen.has(current)) { state.phase = 'cycling'; state.turnFrames = frames; return; }

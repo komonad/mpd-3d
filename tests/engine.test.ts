@@ -70,9 +70,25 @@ test('demons enclosed by one body vacate its destinations simultaneously', () =>
   }
 });
 
-test('an enclosed inactive demon blocks body translation without partial movement', () => {
+test('a translating body mechanically displaces an enclosed inactive demon', () => {
   for (const boundary of [false, true]) for (const asleep of [false, true]) {
     const level = enclosedDemons(boundary), state = initialState(level);
+    if (asleep) state.players[1].awake = false;
+    else state.players[1].temperature = 1;
+    const next = move(level, state, 2)!;
+    assert.ok(next);
+    assert.deepEqual(next.players.map(p => [p.x, p.y]), [[4, 3], [4, 4]]);
+    assert.deepEqual(state.players.map(p => [p.x, p.y]), [[3, 3], [3, 4]]);
+  }
+});
+
+test('an active demon cannot walk directly into an inactive demon', () => {
+  for (const boundary of [false, true]) for (const asleep of [false, true]) {
+    const level = enclosedDemons(boundary);
+    level.cells = boundary ? [block(7, 1, 0, 0xaa)] : [];
+    if (boundary) level.pistons![0].baseKey = 0;
+    level.players = [{ x: 3, y: 3 }, { x: 4, y: 3 }];
+    const state = initialState(level);
     if (asleep) state.players[1].awake = false;
     else state.players[1].temperature = 1;
     const before = cloneState(state);
