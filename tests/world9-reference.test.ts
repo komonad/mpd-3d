@@ -105,6 +105,21 @@ test('9-17 delivers the retained block while preserving its compressed housing a
   assert.equal(state.pistons!.find(p => p.baseKey === 72)!.expanded, false);
 });
 
+test('9-19 absorbs its transparent load laterally before expansion clears the final corridor', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-19')!);
+  assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1L6ZcYmEfc/');
+  run.seek(run.operations.length - 4);
+  assert.deepEqual(run.simulation.session.current.players.map(p => [p.x, p.y]), [[7, 4]]);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true);
+  const state = run.simulation.session.current;
+  assert.deepEqual(state.players.map(p => [p.x, p.y]), [[8, 3]]);
+  assert.deepEqual(state.cells.filter(c => [28, 34].includes(c.key)).map(c => [c.key, c.x, c.y, c.container]), [[28, 8, 4, undefined], [34, 8, 5, undefined]]);
+  assert.ok(state.turnFrames!.some(frame => frame.cells.some(c => c.key === 28 && c.container === 34) && frame.pistons.some(p => p.baseKey === 34 && !p.expanded)));
+  assert.equal(state.pistons!.find(p => p.baseKey === 34)!.expanded, true);
+  run.seek(run.operations.length - 1); run.advance(); assert.equal(run.passed, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 14).map(c => [c.x, c.y, c.temperature]), [[10, 1, 0]]);
+});
+
 test('9-24 preserves carried inventories through the final chain of thermal actions', { skip: !data }, () => {
   const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-24')!);
   assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1mRtQzyEK4/');

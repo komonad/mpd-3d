@@ -1577,6 +1577,21 @@
       }
     },
     {
+      "levelId": "2a1b2a01",
+      "label": "9-19",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1L6ZcYmEfc/",
+      "start": {
+        "levelId": "2a1b2a01",
+        "completion": "previous-numbered"
+      },
+      "actions": "R D U L2 D2 U R2 D2 R2 UNDO U R RESET L D4 R U2 L U3 L3 D R2 D R L U2 R2 D2 R D U2 L2 R2 D3 L2 D L2 U L U3 R2 U R D L D R RESET U R2 D2 L3 UNDO D2 L2 U R3 UNDO U R2 D L2 U3 R D RESET R D L2 D L U2 R2 D R D L RESET U2 R L2 U L D R L D L2 D2 R U2 L U R2 D R2 U L U L D R D L D R L3 U R2 D R UNDO3 D R U3 R L D L D L U3 R D2 R4 U L2 R D2 R D L2 D L U3 L U R2 D4 L3 U2 R3 U R2 U RESET L2 D3 R U L3 U3 R D2 L D R2 U2 L3 D3 R D R U3 L U R U R3 L D2 R U L ENTER(2a1b2a01) R D3 L3 U4 R3 D L D2 U2 D2 R D L D L U R U2 L4 D2 R3 UNDO3 D R U3 R U2 R D2 UNDO2 R D2 L D R2 U3 L2 D R U L4 D R4 D L2 D3 R U3 L U R2 U R D3 U2 L4 D2 L D R5 U R L2 RESET D R L2 D R U R D L D R U R2 U2 R",
+      "expected": {
+        "moves": 65,
+        "pushes": 18
+      }
+    },
+    {
       "levelId": "4a254bc2",
       "label": "9-21",
       "origin": "search",

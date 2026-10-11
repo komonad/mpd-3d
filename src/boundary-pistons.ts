@@ -79,8 +79,8 @@ class MotionPlan {
     return destination;
   }
 
-  private fork(allowCompression = this.allowCompression): MotionPlan {
-    const trial = new MotionPlan(this.level, this.state, this.direction, this.forcePlayers, allowCompression, this.stationaryCell);
+  private fork(allowCompression = this.allowCompression, direction = this.direction, stationaryCell = this.stationaryCell): MotionPlan {
+    const trial = new MotionPlan(this.level, this.state, direction, this.forcePlayers, allowCompression, stationaryCell);
     this.cells.forEach((destination, key) => trial.cells.set(key, destination));
     this.players.forEach((destination, index) => trial.players.set(index, destination));
     this.compressed.forEach(key => trial.compressed.add(key));
@@ -125,6 +125,22 @@ class MotionPlan {
     for (const piston of extensions) {
       const trial = this.fork(); trial.extended.add(piston.baseKey);
       if (trial.translateCell(cell)) { this.accept(trial); return true; }
+    }
+    const absorbers = (this.state.pistons ?? []).filter(p => {
+      const base = this.state.cells.find(c => c.key === p.baseKey), d = directions[p.direction];
+      return p.model === 'boundary' && p.expanded && base && !this.compressed.has(base.key) &&
+        this.direction !== p.direction && this.direction !== opposite(p.direction) &&
+        cell.container === base.container && cell.x === base.x + d.x && cell.y === base.y + d.y &&
+        (edge(cell, opposite(p.direction)) === 0 || edge(cell, opposite(p.direction)) === 3 || edge(base, p.direction) === 3) &&
+        !this.state.cells.some(c => c.container === base.key) && !this.state.players.some(p => p.container === base.key);
+    });
+    for (const piston of absorbers) {
+      const base = this.state.cells.find(c => c.key === piston.baseKey)!;
+      const support = new MotionPlan(this.level, this.state, opposite(piston.direction) as Direction, this.forcePlayers, false);
+      if (support.moveCell(base)) continue;
+      const trial = this.fork(true, opposite(piston.direction) as Direction, base.key);
+      trial.compressed.add(base.key);
+      if (trial.moveCell(cell)) { this.accept(trial); return true; }
     }
     return false;
   }

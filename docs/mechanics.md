@@ -36,6 +36,8 @@ An absent external face also joins a transparent neighbor after translation. In 
 
 Passive piston exchanges change temperature independently of heat capacity. The native exchange constructor at `0x14003cac0` maps compression from cold to neutral and all other temperatures to hot. Expansion maps hot to neutral and all other temperatures to cold. A retentive housing can therefore lose its reset retention through passive motion. Transparent housings receive the motion-phase temperature, then contribute zero capacity to the next thermal balance.
 
+A supported expanded housing can absorb an attached opening-side load during a perpendicular push when rigid translation is blocked. The simulator checks rear support, reserves the housing, and plans the load along the compression axis. A subsequent hot expansion can displace the pushing demon along that axis. This rule is inferred from the 9-19 walkthrough; equivalence for other dependency arrangements remains unverified.
+
 Released piston inventories expose unpaired absent edges as adhesive faces before heat balance and subsequent actuation. Their insulating faces retain their edge codes. Ordinary rigid-body translation preserves its existing surface codes.
 
 Active extension evaluates the final relative position of the housing and its inventory. If a dependency translates both to the same on-grid address, the inventory remains contained and the housing remains compressed. Such carriage does not spend an expansion impulse. A following heat phase can continue the thermal dependency chain. In 9-24, the final rightward push leaves the demon stationary while chained actuations carry the housings across the passage and place the third housing on the goal.
@@ -54,7 +56,7 @@ World 4 reference tests compare intermediate states with [the numbered-room walk
 | 4-16 | 417.60 s | 22 | The housing retreats from supported inventory; the heat frame precedes automatic retraction. |
 | 4-17 | 435.37 s | 41 | Cold actuation stores the load without translating the free housing. |
 
-World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibili.com/video/BV1fVL9zTEXV/), [the updated 9-11 walkthrough](https://www.bilibili.com/video/BV1ewbW6cEx7/), [the updated 9-14 walkthrough](https://www.bilibili.com/video/BV1QugJ6PEMQ/), [the 9-17 opening walkthrough](https://www.bilibili.com/video/BV19vLUzmEGP/), [the 9-13–9-17 walkthrough](https://www.bilibili.com/video/BV1gso2YaE5L/), and [the numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/).
+World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibili.com/video/BV1fVL9zTEXV/), [the updated 9-11 walkthrough](https://www.bilibili.com/video/BV1ewbW6cEx7/), [the updated 9-14 walkthrough](https://www.bilibili.com/video/BV1QugJ6PEMQ/), [the 9-17 opening walkthrough](https://www.bilibili.com/video/BV19vLUzmEGP/), [the 9-13–9-17 walkthrough](https://www.bilibili.com/video/BV1gso2YaE5L/), [the 9-18–9-21 walkthrough](https://www.bilibili.com/video/BV1L6ZcYmEfc/), and [the numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/).
 
 | Room | Video time | Checkpoint |
 | --- | --- | --- |
@@ -64,6 +66,7 @@ World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibi
 | 9-15 | 398.10 s | A blocked opening-side push compresses and reheats the retentive housing; automatic extension leaves it neutral, so reset restores it while retaining the demon. |
 | 9-17 | 6.53 s | Both demons and their enclosing frame advance right in one input. |
 | 9-17 | 436.90 s | The retained block reaches `(12, 7)` at neutral temperature while the housing remains compressed at `(9, 4)` and both demons remain active. |
+| 9-19 | 293.80–294.80 s | Lateral compression and expansion clear the demon's passage while the glass remains at `(8, 4)` above the expanded housing at `(8, 5)`; the neutral block reaches `(10, 1)`. Intermediate native housing temperatures remain unverified. |
 | 9-22 | 726.57 s | An upward push carries the transparent goal block together with the cold load above it. |
 | 9-24 | 888.97 s | The final rightward push starts a chain of thermal actions; every phase preserves inventory layers and the demon's position. |
 | 9-25 | 912.37 s | The final turn places the retained solid load on the goal and leaves both surviving housings expanded. |

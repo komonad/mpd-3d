@@ -26,6 +26,38 @@ test('an absent external load edge joins the back of a housing in either expansi
   }
 });
 
+test('supported housings absorb attached lateral loads before hot expansion displaces the demon', () => {
+  for (const direction of [0, 1, 2, 3] as const) for (const glass of [false, true]) {
+    const vectors = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }], d = vectors[direction];
+    const sideways = ((direction + 1) % 4) as typeof direction, t = vectors[sideways];
+    const load = { ...block(4 + d.x, 3 + d.y), storesHeat: !glass, edges: 0x55 & ~(3 << (((direction + 2) % 4) * 2)) };
+    const l = room([housing(4, 1), load, { ...block(4 - d.x, 3 - d.y), fixed: true, edges: 0xaa },
+      { ...block(4 + d.x + t.x, 3 + d.y + t.y), fixed: true, edges: 0xaa }],
+      [{ ...piston(0, true), direction }], [{ x: 4 + d.x - t.x, y: 3 + d.y - t.y }]);
+    const state = initialState(l);
+    assert.deepEqual(moveBoundaryDemons(l, state, sideways), { moved: true, pushed: true });
+    assert.deepEqual(state.cells.slice(0, 2).map(c => [c.x, c.y, c.container]), [[4, 3, undefined], [4, 3, 0]]);
+    assert.deepEqual(state.players.map(p => [p.x, p.y]), [[4 + d.x, 3 + d.y]]);
+    assert.equal(state.pistons![0].expanded, false);
+    assert.equal(actuateBoundary(l, state, state.pistons![0]), true);
+    assert.deepEqual(state.cells.slice(0, 2).map(c => [c.x, c.y, c.container]), [[4, 3, undefined], [4 + d.x, 3 + d.y, undefined]]);
+    assert.deepEqual(state.players.map(p => [p.x, p.y]), [[4 + 2 * d.x, 3 + 2 * d.y]]);
+    assert.equal(state.pistons![0].expanded, true);
+  }
+});
+
+test('lateral absorption requires rear support and an attached opening face', () => {
+  for (const supported of [false, true]) for (const attached of [false, true]) {
+    if (supported && attached) continue;
+    const cells = [housing(4, 1), { ...block(5, 3), edges: attached ? 0x54 : 0x55 }, { ...block(5, 4), fixed: true, edges: 0xaa }];
+    if (supported) cells.push({ ...block(3, 3), fixed: true, edges: 0xaa });
+    const l = room(cells, [piston(0, true)], [{ x: 5, y: 2 }]), state = initialState(l);
+    assert.deepEqual(moveBoundaryDemons(l, state, 1), { moved: false, pushed: false });
+    assert.deepEqual(state.cells.slice(0, 2).map(c => [c.x, c.y, c.container]), [[4, 3, undefined], [5, 3, undefined]]);
+    assert.equal(state.pistons![0].expanded, true);
+  }
+});
+
 test('passive compression exchanges cold for neutral and every other temperature for hot', () => {
   for (const direction of [0, 1, 2, 3] as const) for (const temperature of [-1, 0, 1, 2] as const) for (const glass of [false, true]) {
     const d = [{ x: -1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 0, y: -1 }][direction];
