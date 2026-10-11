@@ -1,5 +1,5 @@
 import { operationLabel, parseSolutionFile, savedSolutions, solutionCrossesScenes, solutionFile, solutionStartId, solutionStartProgress, SolutionRecording, SolutionReplay, type SavedSolution } from './solutions';
-import type { Operation, SimulationCheckpoint } from './editor-model';
+import { parseOperations, type Operation, type SimulationCheckpoint } from './editor-model';
 import type { Dataset } from './types';
 import type { Session } from './session';
 import './solutions.css';
@@ -104,7 +104,8 @@ export class SolutionPanel {
       const label = document.createElement('strong'); label.textContent = solution.label;
       const progress = solutionStartProgress(this.data, solution);
       const previous = solution.start && !('session' in solution.start) && solution.start.completion === 'previous-numbered';
-      const detail = document.createElement('span'); detail.textContent = `${solution.expected.moves} 步 · ${solution.expected.pushes} 次推动 · ${solutionCrossesScenes(solution) ? '跨场景路线' : '关内路线'} · 从 ${this.levelNames.get(solutionStartId(solution))} 开始${previous ? ' · 此前数字关卡已完成' : progress.solved.length ? ` · 起点已完成 ${progress.solved.length} 关` : ''}`;
+      const detail = document.createElement('span'); detail.textContent = `完整回放 ${parseOperations(solution.actions).length} 次操作 · 通关时关内计数 ${solution.expected.moves} 步 / ${solution.expected.pushes} 次推动 · ${solutionCrossesScenes(solution) ? '跨场景路线' : '关内路线'} · 从 ${this.levelNames.get(solutionStartId(solution))} 开始${previous ? ' · 此前数字关卡已完成' : progress.solved.length ? ` · 起点已完成 ${progress.solved.length} 关` : ''}`;
+      detail.title = '完整回放包含移动、重置、撤销和关卡进出。关内计数会随重置、撤销和场景切换变化。';
       button.append(label, detail); button.onclick = () => { this.dialog.close(); void this.start(solution); };
       const row = document.createElement('div'); row.className = 'solution-library-row'; row.append(button); list.append(row);
       if (this.personal.includes(solution)) {
@@ -128,7 +129,7 @@ export class SolutionPanel {
     const replay = this.replay; if (!replay) return;
     this.el('solution-title').textContent = `${replay.solution.label} · ${solutionStartId(replay.solution) !== replay.solution.levelId && replay.solution.entryStep && replay.cursor < replay.solution.entryStep ? '入口准备' : '解法回放'}`;
     const operation = replay.operations[replay.cursor - 1];
-    this.el('solution-position').textContent = `${replay.cursor} / ${replay.operations.length}${this.busy ? ' · 结算中' : replay.finished ? replay.passed ? ' · 已通关' : ' · 验证失败' : operation ? ` · ${operationLabel(operation)}${operation.target ? ` ${this.levelNames.get(operation.target) ?? ''}` : ''}${replay.accepted ? '' : ' · 被阻挡'}` : ' · 初始状态'}`;
+    this.el('solution-position').textContent = `操作 ${replay.cursor} / ${replay.operations.length}${this.busy ? ' · 结算中' : replay.finished ? replay.passed ? ' · 已通关' : ' · 验证失败' : operation ? ` · ${operationLabel(operation)}${operation.target ? ` ${this.levelNames.get(operation.target) ?? ''}` : ''}${replay.accepted ? '' : ' · 被阻挡'}` : ' · 初始状态'}`;
     const source = this.el<HTMLAnchorElement>('solution-source'); source.hidden = !replay.solution.source; if (replay.solution.source) source.href = replay.solution.source;
     this.el('solution-play').textContent = this.playing ? '暂停' : replay.finished ? '重播' : '播放';
     this.el('solution-play').setAttribute('aria-pressed', String(this.playing));
