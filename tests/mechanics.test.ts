@@ -151,6 +151,47 @@ test('joined checker and insulation bands cover cell junctions without end-cap s
   geometry.dispose(); material.dispose();
 });
 
+test('insulating internal faces survive connections around the exterior boundary', () => {
+  const cells = [cell(0, 0, 0, 0, 0x61, false), cell(1, 1, 0, 0, 0x52, false),
+    cell(2, 0, 1, 0, 0x05, false), cell(3, 1, 1, 0, 0x14, false)];
+  assert.equal(bodies(cells).length, 1);
+  const geometry = bodyLayerGeometry(cells, 0.96), material = new MeshBasicMaterial();
+  const mesh = new Mesh(geometry, [material, material]); mesh.updateMatrixWorld();
+  for (const sign of [-1, 1]) {
+    const hits = new Raycaster(new Vector3(0.5 + sign * 0.3, 0.5, 0), new Vector3(-sign, 0, 0)).intersectObject(mesh);
+    assert.ok(hits.length); assert.equal(hits[0].face!.materialIndex, 0);
+    assert.ok(hits[0].distance <= 0.3);
+  }
+  for (const x of [0.405, 0.455, 0.545, 0.595]) {
+    const hits = new Raycaster(new Vector3(x, 3, 0), new Vector3(0, -1, 0)).intersectObject(mesh);
+    assert.equal(hits.length, 1); assert.equal(hits[0].face!.materialIndex, 0);
+  }
+  geometry.dispose(); material.dispose();
+});
+
+test('internal checker bands meet the opaque perimeter without overlapping its top or side', () => {
+  const cells: Cell[] = [];
+  for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) if (x === 0 || x === 5 || y === 0 || y === 5) {
+    const occupied = (a: number, b: number) => a >= 0 && a < 6 && b >= 0 && b < 6 && (a === 0 || a === 5 || b === 0 || b === 5);
+    const edges = [[0, -1], [1, 0], [0, 1], [-1, 0]].reduce((value, [dx, dy], i) => value | ((occupied(x + dx, y + dy) ? 0 : 2) << ((3 - i) * 2)), 0);
+    cells.push(cell(cells.length, x, y, 0, edges, true, true));
+  }
+  cells.push(cell(cells.length, 4, 1, 0, 0x75, false));
+  assert.equal(bodies(cells).length, 1);
+  const geometry = bodyLayerGeometry(cells, 0.96, { width: 6, height: 6 }), material = new MeshBasicMaterial();
+  const mesh = new Mesh(geometry, [material, material]); mesh.updateMatrixWorld();
+  for (const x of [4.405, 4.455, 4.545]) for (const z of [0.395, 0.405, 0.45, 0.495, 0.505]) {
+    const hits = new Raycaster(new Vector3(x, 3, z), new Vector3(0, -1, 0)).intersectObject(mesh);
+    assert.equal(hits.length, 1, `Coverage at ${x},${z}`);
+    assert.equal(hits[0].face!.materialIndex, z < 0.5 ? 0 : x < 4.5 ? 1 : 0);
+  }
+  for (const x of [4.405, 4.455]) {
+    const hits = new Raycaster(new Vector3(x, 0.5, 1), new Vector3(0, 0, -1)).intersectObject(mesh);
+    assert.equal(hits.length, 1); assert.equal(hits[0].face!.materialIndex, 0);
+  }
+  geometry.dispose(); material.dispose();
+});
+
 test('ordinary welds, homogeneous sticky solids, and separate bodies have no adhesive junction layer', () => {
   for (const cells of [
     [cell(0, 0, 0, 0, 0x45), cell(1, 1, 0, 0, 0x54)],

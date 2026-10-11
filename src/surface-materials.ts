@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 
 export interface SurfaceTextures {
-  floor: THREE.DataTexture;
-  floorRoughness: THREE.DataTexture;
   glass: THREE.DataTexture;
   glassRoughness: THREE.DataTexture;
 }
@@ -22,20 +20,12 @@ function surfaceTexture(sample: (u: number, v: number) => number, color = true):
 }
 
 export function surfaceTextures(): SurfaceTextures {
-  const floorStroke = (u: number, v: number): number => {
-    const row = Math.floor(v * 5), offset = row % 2 * 0.16;
-    const along = (u + offset) % 1, distance = Math.abs(v * 5 - row - 0.5) / 5;
-    const ends = Math.min(Math.max(0, (along - 0.12) / 0.08), Math.max(0, (0.8 - along) / 0.08), 1);
-    return Math.max(0, 1 - distance / 0.008) * ends;
-  };
   const glassStroke = (u: number, v: number): number => {
     const phase = ((u + v) * 3 + 0.2) % 1;
     const distance = Math.min(phase, 1 - phase) / 3;
     return Math.max(0, 1 - distance / 0.014);
   };
   return {
-    floor: surfaceTexture((u, v) => 255 - floorStroke(u, v) * 36),
-    floorRoughness: surfaceTexture((u, v) => 234 - floorStroke(u, v) * 16, false),
     glass: surfaceTexture((u, v) => 255 - glassStroke(u, v) * 54),
     glassRoughness: surfaceTexture((u, v) => 9 + glassStroke(u, v) * 43, false),
   };

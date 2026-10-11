@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Cell, Point } from './types';
+import { coatingMask, subtractCoating, type CoatingMask, type CoatingVertex } from './coating-geometry';
 
 interface Segment { a: Point; b: Point; direction: number }
 export const bodyBaseHeight = 0.055;
@@ -38,17 +39,36 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
   const geometry = new THREE.BufferGeometry();
   const lo = bodyBaseHeight, hi = lo + height;
   const vertex = (p: Point, y: number) => [p.x - root.x - 0.5, y, p.y - root.y - 0.5];
+  type Coating = { mask: CoatingMask; faces: CoatingVertex[][]; kind: number; owner: number };
+  const coatings: Coating[] = [], caps: { face: CoatingVertex[]; kind: number; owner: number }[] = [];
+  let current: Coating | undefined;
+  function begin(points: Point[], kind: number, owner: number): void {
+    if (kind !== 2 && kind !== 3) return;
+    current = { mask: coatingMask(points.map(p => ({ x: p.x - root.x - 0.5, y: p.y - root.y - 0.5 }))), faces: [], kind, owner };
+    coatings.push(current);
+  }
+  function polygon(face: CoatingVertex[], kind: number, owner: number): void {
+    const surface = surfaces[kind - 2];
+    for (let i = 1; i < face.length - 1; i++) {
+      const a = face[0].position, b = face[i].position, c = face[i + 1].position;
+      const cross = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]).cross(new THREE.Vector3(c[0] - a[0], c[1] - a[1], c[2] - a[2]));
+      if (cross.lengthSq() < 1e-18) continue;
+      for (const v of [face[0], face[i], face[i + 1]]) { surface.vertices.push(...v.position); surface.uv.push(...v.uv); surface.owners.push(owner); }
+    }
+  }
   function quad(points: number[][], coordinates: number[][], kind: number, owner = -1): void {
     if (kind !== 2 && kind !== 3) return;
-    const surface = surfaces[kind - 2];
-    for (const i of [0, 1, 2, 0, 2, 3]) { surface.vertices.push(...points[i]); surface.uv.push(...coordinates[i]); surface.owners.push(owner); }
+    const face = points.map((position, i) => ({ position, uv: coordinates[i] }));
+    if (current) current.faces.push(face); else caps.push({ face, kind, owner });
   }
   function strip(o: Point, i: Point, n: Point, e: Point, kind: number, u: number, v: number, owner: number): void {
+    begin([o, i, n, e], kind, owner);
     const depth = 3, width = 0.1 / (hi - lo) * depth;
     quad([vertex(o, hi), vertex(i, hi), vertex(n, hi), vertex(e, hi)], [[u, 0], [u, width], [v, width], [v, 0]], kind, owner);
     quad([vertex(o, lo), vertex(o, hi), vertex(e, hi), vertex(e, lo)], [[u, depth], [u, 0], [v, 0], [v, depth]], kind, owner);
     quad([vertex(n, lo), vertex(n, hi), vertex(i, hi), vertex(i, lo)], [[v, depth + width], [v, width], [u, width], [u, depth + width]], kind, owner);
     quad([vertex(e, lo), vertex(n, lo), vertex(i, lo), vertex(o, lo)], [[v, 0], [v, width], [u, width], [u, 0]], kind, owner);
+    current = undefined;
   }
   for (const loop of loops) {
     const curves = loop.map((s, j) => {
@@ -72,8 +92,9 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
       for (let k = 0; k < c.outer.length - 1; k++) append(c.outer[k], c.inner[k], c.inner[k + 1], c.outer[k + 1], k < 4 ? prev.kind : s.kind, k < 4 ? prev.owner : s.owner);
       append(c.outer.at(-1)!, c.inner.at(-1)!, next.inner[0], next.outer[0], s.kind, s.owner);
       if (prev.kind !== s.kind && c.outer.length > 1) {
-        const o = c.outer[4], i = c.inner[4], kind = s.kind === 2 || s.kind === 3 ? s.kind : prev.kind;
-        quad([vertex(o, lo), vertex(i, lo), vertex(i, hi), vertex(o, hi)], [[0, 2], [0.2, 2], [0.2, 0], [0, 0]], kind, s.kind === 2 || s.kind === 3 ? s.owner : prev.owner);
+        const o = c.outer[4], i = c.inner[4], kind = prev.kind === 2 || s.kind === 2 ? 2 : s.kind === 3 ? 3 : prev.kind;
+        const owner = s.kind === kind ? s.owner : prev.owner;
+        quad([vertex(o, lo), vertex(i, lo), vertex(i, hi), vertex(o, hi)], [[0, 2], [0.2, 2], [0.2, 0], [0, 0]], kind, owner);
       }
     });
     const perimeter = strips.reduce((sum, s) => sum + s.length, 0), repeats = loop.length * 3;
@@ -91,26 +112,31 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
     if (!neighbor || cell.container !== neighbor.container) continue;
     const opposite = (direction + 2) % 4;
     const a = edgeAt(cell, direction), b = edgeAt(neighbor, opposite);
-    if (a !== 3 && b !== 3 || cell.storesHeat && neighbor.storesHeat && a !== 2 && b !== 2) continue;
+    const adhesive = (a === 3 || b === 3) && (!cell.storesHeat || !neighbor.storesHeat || a === 2 || b === 2);
+    if (!adhesive && a !== 2 && b !== 2) continue;
     const owner = a === 3 ? cell : neighbor;
-    const coatings = [{ kind: 3, owner, side: owner === cell ? 1 : -1 }];
+    const coatings = adhesive ? [{ kind: 3, owner, side: owner === cell ? 1 : -1 }] : [];
     if (a === 2) coatings.push({ kind: 2, owner: cell, side: 1 });
     if (b === 2) coatings.push({ kind: 2, owner: neighbor, side: -1 });
     interfaces.set(`${cell.x},${cell.y},${direction}`, { cell, neighbor, direction, coatings });
   }
-  for (const { cell, direction, coatings } of interfaces.values()) {
+  for (const { cell, neighbor, direction, coatings } of interfaces.values()) {
     const tangent = direction === 1 ? { x: 0, y: 1 } : { x: -1, y: 0 };
     const center = { x: cell.x + (direction === 1 ? 1 : 0.5), y: cell.y + (direction === 2 ? 1 : 0.5) };
     for (const { kind, owner, side } of coatings) {
       const continues = (sign: number) => interfaces.get(`${cell.x + tangent.x * sign},${cell.y + tangent.y * sign},${direction}`)?.coatings.some(c => c.kind === kind && c.side === side) ?? false;
-      const start = continues(-1) ? -0.5 : -0.49, end = continues(1) ? 0.5 : 0.49;
+      const junction = (sign: number) => kind === 2 && !continues(sign) &&
+        at.has(`${cell.x + tangent.x * sign},${cell.y + tangent.y * sign}`) &&
+        at.has(`${neighbor.x + tangent.x * sign},${neighbor.y + tangent.y * sign}`);
+      const start = -0.5 - (junction(-1) ? 0.11 : 0), end = 0.5 + (junction(1) ? 0.11 : 0);
       const normal = { x: tangent.y * side, y: -tangent.x * side };
       const point = (along: number, across: number) => ({ x: center.x + tangent.x * along + normal.x * across, y: center.y + tangent.y * along + normal.y * across });
-      const o = point(start, 0), i = point(start, -0.1), n = point(end, -0.1), e = point(end, 0);
-      const top = hi + 0.001, width = 0.1 / height * 3, u = 0, v = 3;
+      const o = point(start, 0), i = point(start, -0.11), n = point(end, -0.11), e = point(end, 0);
+      begin([o, i, n, e], kind, owner.key);
+      const top = hi, width = 0.11 / height * 3, u = (start + 0.5) * 3, v = (end + 0.5) * 3;
       const face = (points: number[][], coordinates: number[][]) => quad(side > 0 ? points : [...points].reverse(), side > 0 ? coordinates : [...coordinates].reverse(), kind, owner.key);
       face([vertex(o, top), vertex(i, top), vertex(n, top), vertex(e, top)], [[u, 0], [u, width], [v, width], [v, 0]]);
-      if (kind === 2 || !coatings.some(c => c.kind === 2)) {
+      if (kind === 2 && coatings.find(c => c.kind === 2)!.owner === owner || !coatings.some(c => c.kind === 2)) {
         const points = [vertex(o, lo), vertex(o, top), vertex(e, top), vertex(e, lo)], coordinates = [[u, 3], [u, 0], [v, 0], [v, 3]];
         face(points, coordinates);
         if (kind === 2) face([...points].reverse(), [...coordinates].reverse());
@@ -118,7 +144,36 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
       face([vertex(n, lo), vertex(n, top), vertex(i, top), vertex(i, lo)], [[v, 3 + width], [v, width], [u, width], [u, 3 + width]]);
       if (!continues(-1)) face([vertex(i, lo), vertex(i, top), vertex(o, top), vertex(o, lo)], [[width, 3], [width, 0], [0, 0], [0, 3]]);
       if (!continues(1)) face([vertex(e, lo), vertex(e, top), vertex(n, top), vertex(n, lo)], [[0, 3], [0, 0], [width, 0], [width, 3]]);
+      current = undefined;
     }
+  }
+  // Insulation owns intersections; later coatings cannot introduce coplanar surfaces.
+  coatings.sort((a, b) => a.kind - b.kind);
+  const tiles = new Map<string, Coating[]>();
+  for (const coating of coatings) {
+    const mask = coating.mask, nearby = new Set<Coating>();
+    for (let y = Math.floor(mask.minY); y <= Math.floor(mask.maxY); y++) for (let x = Math.floor(mask.minX); x <= Math.floor(mask.maxX); x++) {
+      const bucket = tiles.get(`${x},${y}`) ?? [];
+      for (const previous of bucket) nearby.add(previous);
+      bucket.push(coating); tiles.set(`${x},${y}`, bucket);
+    }
+    const masks = [...nearby].filter(c => c.mask.maxX >= mask.minX && c.mask.minX <= mask.maxX && c.mask.maxY >= mask.minY && c.mask.minY <= mask.maxY);
+    for (const face of coating.faces) {
+      let fragments = [face];
+      for (const previous of masks) fragments = fragments.flatMap(fragment => subtractCoating(fragment, previous.mask));
+      for (const fragment of fragments) polygon(fragment, coating.kind, coating.owner);
+    }
+  }
+  for (const cap of caps) {
+    let fragments = [cap.face];
+    if (cap.kind === 3) {
+      const mask = coatingMask(cap.face.map(v => ({ x: v.position[0], y: v.position[2] }))), nearby = new Set<Coating>();
+      for (let y = Math.floor(mask.minY); y <= Math.floor(mask.maxY); y++) for (let x = Math.floor(mask.minX); x <= Math.floor(mask.maxX); x++) {
+        for (const coating of tiles.get(`${x},${y}`) ?? []) if (coating.kind === 2) nearby.add(coating);
+      }
+      for (const coating of nearby) fragments = fragments.flatMap(fragment => subtractCoating(fragment, coating.mask));
+    }
+    for (const fragment of fragments) polygon(fragment, cap.kind, cap.owner);
   }
   const vertices: number[] = [], uv: number[] = [], owners: number[] = [];
   surfaces.forEach((s, index) => {

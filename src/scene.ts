@@ -228,7 +228,7 @@ export class GameScene {
       g.userData.surfaceLayer = layer;
       const insulation = this.physical('#fcfcfa'); insulation.roughness = 0.9; insulation.metalness = insulation.clearcoat = 0;
       insulation.userData.transmissionBarrier = true;
-      insulation.polygonOffset = true; insulation.polygonOffsetFactor = -2; insulation.polygonOffsetUnits = -2;
+      insulation.polygonOffset = true; insulation.polygonOffsetFactor = -4; insulation.polygonOffsetUnits = -4;
       this.mesh(layer, [insulation, this.adhesiveMaterial], g);
     } else layer.dispose();
     for (const cell of cells) {
@@ -434,7 +434,6 @@ export class GameScene {
     platform.receiveShadow = true;
     this.mesh(new RoundedBoxGeometry(w + 0.65, 0.12, h + 0.65, 3, 0.12), this.physical('#928a7e'), this.board, 0, -0.425, 0);
     const floorMaterial = this.physical(palette.floor); floorMaterial.roughness = 0.9; floorMaterial.clearcoat = 0.06; floorMaterial.metalness = 0;
-    floorMaterial.map = this.textures.floor; floorMaterial.roughnessMap = this.textures.floorRoughness;
     const tiles = new THREE.InstancedMesh(new RoundedBoxGeometry(0.985, 0.05, 0.985, 2, 0.025), floorMaterial, w * h);
     const matrix = new THREE.Matrix4();
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { matrix.makeTranslation(x - (w - 1) / 2, 0.025, y - (h - 1) / 2); tiles.setMatrixAt(y * w + x, matrix); }
