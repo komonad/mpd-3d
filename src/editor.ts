@@ -126,7 +126,7 @@ export class LevelEditor {
     this.el<HTMLSelectElement>('editor-library').replaceChildren(...this.base.levels.map(l => option(l.id, `${levelIdentifier(l)} · ${l.title ?? `${l.width} × ${l.height}`}`)));
     this.el<HTMLSelectElement>('editor-target').replaceChildren(...this.data.levels.map(l => option(l.id, `${levelIdentifier(l)} · ${l.title ?? l.id}`)));
     this.el<HTMLSelectElement>('editor-target').value = this.draft.id;
-    this.el<HTMLSelectElement>('editor-layer').replaceChildren(option('', '地面'), ...(this.draft.pistons ?? []).map(p => option(p.baseKey, `活塞 #${p.baseKey} 内部${p.expanded ? ' · 已展开' : ''}`)));
+    this.el<HTMLSelectElement>('editor-layer').replaceChildren(option('', '地面'), ...(this.draft.pistons ?? []).map(p => option(p.baseKey, `活塞 #${p.order + 1} 内部${p.expanded ? ' · 已展开' : ''}`)));
     this.el<HTMLSelectElement>('editor-layer').value = this.layer === undefined ? '' : String(this.layer);
     this.refreshCases(); this.renderGrid(); this.persist();
   }

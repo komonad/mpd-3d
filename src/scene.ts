@@ -265,7 +265,7 @@ export class GameScene {
           plate.userData.pistonFace = true; plate.userData.expanded = piston.expanded;
           this.mesh(new RoundedBoxGeometry(horizontal ? 0.48 : 0.035, 0.035, horizontal ? 0.035 : 0.48, 2, 0.008), metal, g, x + front.x * (plateAt + 0.065), 0.78, z + front.y * (plateAt + 0.065));
           this.pistonArrow(piston, state, g, x + back.x * 0.28, 1.105, z + back.y * 0.28);
-          const number = this.mesh(new THREE.PlaneGeometry(0.36, 0.36), new THREE.MeshBasicMaterial({ map: labelTexture(String(piston.order)), transparent: true, depthWrite: false, toneMapped: false }), g, x - back.x * 0.28, 1.115, z - back.y * 0.28);
+          const number = this.mesh(new THREE.PlaneGeometry(0.36, 0.36), new THREE.MeshBasicMaterial({ map: labelTexture(`#${piston.order + 1}`), transparent: true, depthWrite: false, toneMapped: false }), g, x - back.x * 0.28, 1.115, z - back.y * 0.28);
           number.rotation.x = -Math.PI / 2; number.visible = this.pistonNumbers; number.userData.pistonNumber = true;
           continue;
         }

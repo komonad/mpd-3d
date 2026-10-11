@@ -21,9 +21,9 @@ test('inspection lists nested pistons, transparent portals, and contained demons
   const s = state([block(0), { ...block(1, 0), temperature: 2 }, glass], [piston(0, 5), piston(1, 2)]);
   s.players = [{ x: 3, y: 3, temperature: 1, container: 1 }];
   const outer = inspectCell(s, 0, new Map([['child', '9-01']]))!;
-  assert.deepEqual(outer.contents.map(i => [i.title, i.kind, i.depth, i.temperature]), [['活塞 #2', 'piston', 0, 2], ['关卡 9-01', 'glass', 1, -1], ['麦妖', 'demon', 1, 1]]);
+  assert.deepEqual(outer.contents.map(i => [i.title, i.kind, i.depth, i.temperature]), [['活塞 #3', 'piston', 0, 2], ['关卡 9-01', 'glass', 1, -1], ['麦妖', 'demon', 1, 1]]);
   assert.match(outer.contents[1].details, /透明 · 不储热.*粘边/); assert.match(outer.contents[2].details, /假死/);
-  assert.equal(inspectCell(s, 2, new Map())?.title, '活塞 #2');
+  assert.equal(inspectCell(s, 2, new Map())?.title, '活塞 #3');
   s.cells = s.cells.filter(c => c.key !== 2); s.players = []; s.pistons![1].expanded = true;
   const inner = inspectCell(s, 1, new Map())!; assert.deepEqual(inner.contents, []); assert.equal(inner.piston?.state, '展开');
 });

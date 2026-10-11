@@ -28,7 +28,7 @@ export function inspectCell(state: State, key: number, labels: Map<string, strin
   const fixedKeys = new Set(bodies(state.cells, state.pistons).filter(b => b.some(c => c.fixed)).flatMap(b => b.map(c => c.key)));
   const title = (c: Cell): string => {
     const p = pistons.get(c.key);
-    return p ? `活塞 #${p.order}` : c.portal ? `关卡 ${labels.get(c.portal.target) ?? '入口'}` : c.storesHeat ? '方块' : '透明方块';
+    return p ? `活塞 #${p.order + 1}` : c.portal ? `关卡 ${labels.get(c.portal.target) ?? '入口'}` : c.storesHeat ? '方块' : '透明方块';
   };
   const details = (c: Cell): string => [temperatureName(c.temperature), fixedKeys.has(c.key) ? '固定' : '可推动',
     ...(!c.storesHeat ? ['透明 · 不储热'] : []),
