@@ -65,7 +65,7 @@ export class GameScene {
   private shownState?: State;
   private activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle';
   private pistonRods: { rod: THREE.Mesh; target: number; direction: number }[] = [];
-  private pistonNumbers = false;
+  private pistonNumbers = true;
   private level?: Level;
   private previousTime = performance.now();
   private targets = new Map<number, THREE.Vector3>();
@@ -221,7 +221,8 @@ export class GameScene {
       g.userData.glassRim = { material: rimMaterial, cellKey: glass[0].key };
     }
     const delta = [[-1, 0], [0, 1], [1, 0], [0, -1]];
-    const layer = solidCells.length ? bodyLayerGeometry(solidCells, height, exterior ? this.level : undefined) : new THREE.BufferGeometry();
+    // Coating tops sit above the core; their vertical faces extend to meet the raised surface.
+    const layer = solidCells.length ? bodyLayerGeometry(solidCells, height + 0.006, exterior ? this.level : undefined) : new THREE.BufferGeometry();
     if (solidCells.length) layer.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
     if (layer.getAttribute('position')?.count) {
       layer.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(layer.getAttribute('position').count * 3), 3));
@@ -257,15 +258,11 @@ export class GameScene {
           const frame = new THREE.MeshStandardMaterial({ color: '#78858d', roughness: 0.8 });
           for (const a of [-1, 1]) for (const b of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.055, 0.055, 0.96, 3, 0.01), frame, g, x + a * 0.46, b > 0 ? 1.06 : 0.065, z);
           for (const side of [-1, 1]) this.mesh(new RoundedBoxGeometry(0.96, 0.055, 0.055, 3, 0.01), frame, g, x, 1.06, z + side * 0.46);
-          const back = directions[opposite(piston.direction)], front = directions[piston.direction], tangent = { x: -front.y, y: front.x };
+          const back = directions[opposite(piston.direction)], front = directions[piston.direction];
           const metal = new THREE.MeshStandardMaterial({ color: '#50585e', roughness: 0.75, metalness: 0.15 });
           const plateAt = piston.expanded ? 0.455 : -0.34, horizontal = piston.direction % 2 === 1;
           const plate = this.mesh(new RoundedBoxGeometry(horizontal ? 0.78 : 0.05, 0.8, horizontal ? 0.05 : 0.78, 3, 0.012), material, g, x + front.x * plateAt, 0.52, z + front.y * plateAt);
           plate.userData.pistonFace = true; plate.userData.expanded = piston.expanded;
-          for (const side of [-1, 1]) {
-            const rail = this.mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.82, 10), metal, g, x + tangent.x * side * 0.26, 0.96, z + tangent.y * side * 0.26);
-            rail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(front.x, 0, front.y));
-          }
           this.mesh(new RoundedBoxGeometry(horizontal ? 0.48 : 0.035, 0.035, horizontal ? 0.035 : 0.48, 2, 0.008), metal, g, x + front.x * (plateAt + 0.065), 0.78, z + front.y * (plateAt + 0.065));
           this.pistonArrow(piston, state, g, x + back.x * 0.28, 1.105, z + back.y * 0.28);
           const number = this.mesh(new THREE.PlaneGeometry(0.36, 0.36), new THREE.MeshBasicMaterial({ map: labelTexture(String(piston.order)), transparent: true, depthWrite: false, toneMapped: false }), g, x - back.x * 0.28, 1.115, z - back.y * 0.28);
