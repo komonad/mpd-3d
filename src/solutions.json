@@ -1413,6 +1413,20 @@
       }
     },
     {
+      "levelId": "5c96029d",
+      "label": "9-6",
+      "origin": "search",
+      "start": {
+        "levelId": "5c96029d",
+        "completion": "previous-numbered"
+      },
+      "actions": "D L7 R5 U2 L5 R5 D2 L5 U R D R U L U D L RESET L D R2 U R2 D R U L U L D RESET L D RESET L3 D R RESET U L5 D2 L2 U2 R6 D2 L U L U R L5 D R3 RESET R2 U RESET L2 U L2 D L D R7 U R D2 RESET R",
+      "expected": {
+        "moves": 1,
+        "pushes": 1
+      }
+    },
+    {
       "levelId": "54a983b6",
       "label": "9-7",
       "origin": "video",
@@ -1559,6 +1573,21 @@
       "expected": {
         "moves": 110,
         "pushes": 35
+      }
+    },
+    {
+      "levelId": "acb948d1",
+      "label": "9-24",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1mRtQzyEK4/",
+      "start": {
+        "levelId": "acb948d1",
+        "completion": "previous-numbered"
+      },
+      "actions": "R U3 R6 D L3 U L2 D U R2 D L U L2 D R4 U R2 D L U L5 D3 R U R2 D L3 U R3 U2 ENTER(acb948d1) R3 U2 L D U RESET R U3 R D L D2 R U R4 U2 L D R D L3 RESET R4 L U2 R2 U D2 R D R U3 L D2 R D2 L U RESET R U R L U R U R2 D R L U L D R L UNDO3 L D R U R D R U R2 D2 L2 R2 U2 L D2 U L5 D2 R6",
+      "expected": {
+        "moves": 108,
+        "pushes": 28
       }
     },
     {

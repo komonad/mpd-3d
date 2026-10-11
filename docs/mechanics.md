@@ -34,6 +34,8 @@ An absent edge on an external load joins the exposed housing face it touches, in
 
 Released piston inventories expose unpaired absent edges as adhesive faces before heat balance and subsequent actuation. Their insulating faces retain their edge codes. Ordinary rigid-body translation preserves its existing surface codes.
 
+Active extension evaluates the final relative position of the housing and its inventory. If a dependency translates both to the same on-grid address, the inventory remains contained and the housing remains compressed. Such carriage does not spend an expansion impulse. A following heat phase can continue the thermal dependency chain. In 9-24, the final rightward push leaves the demon stationary while chained actuations carry the housings across the passage and place the third housing on the goal.
+
 ## Validation boundaries
 
 Local tests cover MXW parsing, finite and infinite heat capacity, multiple demons, nested inventories, retentive resets at multiple depths, supported piston motion, transitions, and label data. Completion routes cover all numbered rooms in worlds 1–3, world 4 rooms 1–10 and 12–19, and selected later rooms. Opening-move checks cover every main room with pistons. Browser checks cover the overworld, worlds 1–9, A, B, hints, undo after automatic exit, hover inventory, free camera orientation, and layout at desktop and mobile sizes.
@@ -56,6 +58,7 @@ World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibi
 | 9-11 | 15.23 s | An upward push moves the transparent frame and its attached compressed housing together. |
 | 9-14 | 2.67 s | Moving left from the retentive block leaves the demon at `(1, 2)` with neutral temperature. |
 | 9-17 | 6.53 s | Both demons and their enclosing frame advance right in one input. |
+| 9-24 | 888.97 s | The final rightward push starts a chain of thermal actions; every phase preserves inventory layers and the demon's position. |
 | 9-25 | 912.37 s | The final turn places the retained solid load on the goal and leaves both surviving housings expanded. |
 
 These checks validate the simulator's contracts and selected original puzzles. They do not constitute exhaustive differential testing against the executable.

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { initialState, move } from '../src/engine';
 import { savedSolutions, SolutionReplay } from '../src/solutions';
 import type { Dataset } from '../src/types';
+import { address } from '../src/topology';
 
 const data: Dataset | undefined = fs.existsSync('public/levels.local.json') ? JSON.parse(fs.readFileSync('public/levels.local.json', 'utf8')) : undefined;
 
@@ -16,6 +17,19 @@ test('9-5 pushes an overheated demon with its movable entrance', { skip: !data }
   assert.ok(next);
   assert.deepEqual(next.players.map(p => [p.x, p.y, p.temperature]), [[7, 3, 0], [9, 3, 1]]);
   assert.equal(next.cells.find(c => c.portal?.target === '5c96029d')!.x, 8);
+});
+
+test('9-6 resets around the retained upper block before pushing it onto the goal', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-6')!);
+  run.seek(run.operations.length - 2);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 18).map(c => [c.x, c.y, c.temperature]), [[11, 5, 2]]);
+  assert.equal(run.advance()?.command, 'RESET'); assert.equal(run.accepted, true);
+  const reset = run.simulation.session.current;
+  assert.deepEqual(reset.cells.filter(c => c.key === 18).map(c => [c.x, c.y, c.temperature]), [[11, 5, 2]]);
+  assert.equal(reset.players.length, 2); assert.equal(reset.solved, false);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true); assert.equal(run.passed, true);
+  assert.deepEqual(run.simulation.session.current.cells.filter(c => c.key === 18).map(c => [c.x, c.y]), [[12, 5]]);
+  assert.equal(run.simulation.session.current.moves, 1); assert.equal(run.simulation.session.current.pushes, 1);
 });
 
 test('9-11 moves a compressed housing with the transparent frame behind it', { skip: !data }, () => {
@@ -50,6 +64,29 @@ test('9-17 opens by moving the enclosing frame with both demons', { skip: !data 
   const frame = [29, 30, 31, 38, 39, 46, 47];
   assert.deepEqual(next.cells.filter(c => frame.includes(c.key)).map(c => [c.x, c.y]), [[3, 2], [4, 2], [5, 2], [3, 3], [5, 3], [3, 4], [5, 4]]);
   assert.equal(next.moves, 1); assert.equal(next.pushes, 1);
+});
+
+test('9-24 preserves carried inventories through the final chain of thermal actions', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-24')!);
+  assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1mRtQzyEK4/');
+  run.seek(run.operations.length - 1);
+  assert.deepEqual(run.simulation.session.current.players.map(p => [p.x, p.y]), [[8, 6]]);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true); assert.equal(run.passed, true);
+  const state = run.simulation.session.current;
+  assert.deepEqual(state.players.map(p => [p.x, p.y]), [[9, 6]]);
+  assert.deepEqual(state.cells.filter(c => [92, 93].includes(c.key)).map(c => [c.x, c.y, c.container]), [[20, 5, undefined], [20, 5, 92]]);
+  assert.equal(state.pistons!.find(p => p.baseKey === 92)!.expanded, false);
+  assert.deepEqual(state.cells.filter(c => c.key === 118).map(c => [c.x, c.y]), [[23, 5]]);
+  assert.ok(state.turnFrames!.length >= 20);
+  for (const frame of state.turnFrames!) {
+    assert.deepEqual(frame.players.map(p => [p.x, p.y]), [[9, 6]]);
+    assert.equal(new Set(frame.cells.map(address)).size, frame.cells.length);
+    for (const cell of frame.cells.filter(c => c.container !== undefined)) {
+      const parent = frame.cells.find(c => c.key === cell.container)!;
+      assert.deepEqual([cell.x, cell.y], [parent.x, parent.y]);
+      assert.equal(frame.pistons.find(p => p.baseKey === parent.key)!.expanded, false);
+    }
+  }
 });
 
 test('9-25 retains its load through reset before the final movement and actuation', { skip: !data }, () => {

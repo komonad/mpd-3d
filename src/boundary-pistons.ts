@@ -268,7 +268,13 @@ export function actuateBoundary(level: Level, state: State, candidate: Piston): 
       retreat.apply(); boundaryPiston(fallback, housing.key)!.expanded = true; housing.temperature = 0;
       Object.assign(state, fallback); return true;
     }
-    plan.apply(); piston.expanded = true; base.temperature = 0;
+    plan.apply();
+    const occupant = child ?? (player >= 0 ? trial.players[player] : undefined);
+    // A load carried with its housing has no relative expansion or thermal expenditure.
+    const carried = occupant && address(occupant) === address(base);
+    if (carried) occupant.container = base.key;
+    piston.expanded = !carried;
+    if (!carried) base.temperature = 0;
     Object.assign(state, trial); return true;
   }
   if (piston.expanded && base.temperature === -1) {
