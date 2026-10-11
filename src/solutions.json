@@ -1562,6 +1562,21 @@
       }
     },
     {
+      "levelId": "e5d54556",
+      "label": "9-17",
+      "origin": "video",
+      "source": "https://www.bilibili.com/video/BV1gso2YaE5L/",
+      "start": {
+        "levelId": "e5d54556",
+        "completion": "previous-numbered"
+      },
+      "actions": "R D2 R D U2 R D2 L3 UNDO U D L U L U R L D R2 D L2 R D R2 D2 U2 R D L D R U L U2 D2 L2 U R D2 R U3 D U R3 RESET R D3 L D2 R L U R U R L D R3",
+      "expected": {
+        "moves": 18,
+        "pushes": 9
+      }
+    },
+    {
       "levelId": "4a254bc2",
       "label": "9-21",
       "origin": "search",

@@ -54,7 +54,7 @@ World 4 reference tests compare intermediate states with [the numbered-room walk
 | 4-16 | 417.60 s | 22 | The housing retreats from supported inventory; the heat frame precedes automatic retraction. |
 | 4-17 | 435.37 s | 41 | Cold actuation stores the load without translating the free housing. |
 
-World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibili.com/video/BV1fVL9zTEXV/), [the updated 9-11 walkthrough](https://www.bilibili.com/video/BV1ewbW6cEx7/), [the updated 9-14 walkthrough](https://www.bilibili.com/video/BV1QugJ6PEMQ/), [the 9-17 walkthrough](https://www.bilibili.com/video/BV19vLUzmEGP/), and [the numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/).
+World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibili.com/video/BV1fVL9zTEXV/), [the updated 9-11 walkthrough](https://www.bilibili.com/video/BV1ewbW6cEx7/), [the updated 9-14 walkthrough](https://www.bilibili.com/video/BV1QugJ6PEMQ/), [the 9-17 opening walkthrough](https://www.bilibili.com/video/BV19vLUzmEGP/), [the 9-13–9-17 walkthrough](https://www.bilibili.com/video/BV1gso2YaE5L/), and [the numbered-room walkthrough](https://www.bilibili.com/video/BV1mRtQzyEK4/).
 
 | Room | Video time | Checkpoint |
 | --- | --- | --- |
@@ -63,6 +63,7 @@ World 9 reference tests compare [the 9-5 and 9-6 walkthrough](https://www.bilibi
 | 9-14 | 2.67 s | Moving left from the retentive block leaves the demon at `(1, 2)` with neutral temperature. |
 | 9-15 | 398.10 s | A blocked opening-side push compresses and reheats the retentive housing; automatic extension leaves it neutral, so reset restores it while retaining the demon. |
 | 9-17 | 6.53 s | Both demons and their enclosing frame advance right in one input. |
+| 9-17 | 436.90 s | The retained block reaches `(12, 7)` at neutral temperature while the housing remains compressed at `(9, 4)` and both demons remain active. |
 | 9-22 | 726.57 s | An upward push carries the transparent goal block together with the cold load above it. |
 | 9-24 | 888.97 s | The final rightward push starts a chain of thermal actions; every phase preserves inventory layers and the demon's position. |
 | 9-25 | 912.37 s | The final turn places the retained solid load on the goal and leaves both surviving housings expanded. |

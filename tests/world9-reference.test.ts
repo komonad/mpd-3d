@@ -94,6 +94,17 @@ test('9-17 opens by moving the enclosing frame with both demons', { skip: !data 
   assert.equal(next.moves, 1); assert.equal(next.pushes, 1);
 });
 
+test('9-17 delivers the retained block while preserving its compressed housing and both demons', { skip: !data }, () => {
+  const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-17')!);
+  assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1gso2YaE5L/');
+  run.seek(run.operations.length - 1);
+  assert.equal(run.advance()?.command, 'R'); assert.equal(run.accepted, true); assert.equal(run.passed, true);
+  const state = run.simulation.session.current;
+  assert.deepEqual(state.players.map(p => [p.x, p.y, p.temperature]), [[11, 7, 0], [5, 7, 0]]);
+  assert.deepEqual(state.cells.filter(c => [71, 72, 74].includes(c.key)).map(c => [c.key, c.x, c.y, c.temperature]), [[71, 12, 7, 0], [72, 9, 4, 0], [74, 9, 8, 0]]);
+  assert.equal(state.pistons!.find(p => p.baseKey === 72)!.expanded, false);
+});
+
 test('9-24 preserves carried inventories through the final chain of thermal actions', { skip: !data }, () => {
   const run = new SolutionReplay(data!, savedSolutions.find(solution => solution.label === '9-24')!);
   assert.equal(run.solution.source, 'https://www.bilibili.com/video/BV1mRtQzyEK4/');
