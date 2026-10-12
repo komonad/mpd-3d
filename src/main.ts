@@ -1,4 +1,5 @@
 import './style.css';
+import { portalEntryTargets, portalExitOrigins } from './portal-animation';
 import demonIcon from './assets/demon-icon.png';
 import { installLocalImport, readLocalLevels } from './local-levels';
 import { GameScene } from './scene';
@@ -8,7 +9,7 @@ import { laboratory } from './laboratory';
 import { cloneState, exposeOpenWelds, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
 import { compareLevels, levelIdentifier, levelLabels } from './level-labels';
-import { turnPlayback } from './turn-playback';
+import { animationTiming, turnPlayback } from './turn-playback';
 import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, startSession, unlockedWorlds, type Session } from './session';
 import type { Dataset, Direction, Level, State, Temperature, World } from './types';
 
@@ -37,7 +38,7 @@ app.innerHTML = `
   </aside>
   <header class="app-header">
     <button class="icon-button mobile-menu" id="menu-button" aria-label="显示关卡列表">${icon('menu')}</button>
-    <a class="brand" href="#" aria-label="MPD 3D 首页"><span class="brand-mark"><img src="${demonIcon}" alt="" width="512" height="512" /></span><span>MPD<small>PUZZLING DEMON</small></span><em>3D</em></a>
+    <a class="brand" href="#" aria-label="MPD 3D 首页"><span class="brand-mark"><img src="${demonIcon}" alt="" width="512" height="512" /></span><span>MPD<small>MAXWELL’S PUZZLING DEMON</small></span><em>3D</em></a>
     <div class="header-center"><span class="status-dot"></span> A STUDY IN TEMPERATURE <span class="header-line"></span><span id="header-world">温度的世界</span></div>
     <div class="header-actions"><button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效">${icon('sound')}</button><button class="icon-button" id="help-button" aria-label="玩法说明" title="玩法说明">${icon('help')}</button><button class="icon-button" id="settings-button" aria-label="画面设置" title="画面设置">${icon('settings')}</button><button id="solutions-button">解法回放</button><button id="editor-button">关卡编辑器</button></div>
   </header>
@@ -211,10 +212,10 @@ async function step(direction: Direction): Promise<void> {
       const frame = next.turnFrames[index++];
       $('#step-status').hidden = false;
       $('#step-status').textContent = `Ctrl · ${index}/${next.turnFrames.length} · ${frame.phase === 'heat' ? '热量平衡' : '移动与活塞'}`;
-      scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+      scene.update({ ...next, ...frame, phase: 'ready', solved: false }, false, 'resolving', animationTiming.detailMotion);
       await new Promise<void>(resolve => {
         const finish = () => { clearTimeout(timer); if (releaseDetail === finish) releaseDetail = undefined; resolve(); };
-        const timer = setTimeout(finish, 260); releaseDetail = finish;
+        const timer = setTimeout(finish, animationTiming.detailHold); releaseDetail = finish;
       });
     }
     $('#step-status').hidden = true;
@@ -235,7 +236,7 @@ async function step(direction: Direction): Promise<void> {
     resolving = false;
     renderHud();
   }
-  if (state.solved && canExit()) { const next = exitLevel(data, session); if (next) { remember(); session = next; load(next.current.levelId, next.current.outside, next.current); solutionPanel.record({ command: 'EXIT' }, session); notify('关卡完成，已返回上层场景。'); } }
+  if (state.solved && canExit()) { const next = exitLevel(data, session); if (next) { await showExit(next); notify('关卡完成，已返回上层场景。'); } }
   flushInput();
 }
 function flushInput(): void { if (!resolving && queuedDirection !== undefined) { const direction = queuedDirection; queuedDirection = undefined; void step(direction); } }
@@ -243,7 +244,7 @@ function restore(s: Snapshot): void { const sameLevel = level.id === s.current.l
 function undo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('UNDO'); return; } const previous = undoHistory.pop(); if (!previous) return; redoHistory.push(snapshot()); restore(previous); solutionPanel.record({ command: 'UNDO' }, session); playTone('undo'); }
 function redo(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('REDO'); return; } const next = redoHistory.pop(); if (!next) return; undoHistory.push(snapshot()); restore(next); solutionPanel.record({ command: 'REDO' }, session); playTone('move'); }
 function reset(): void { if (solutionPanel?.active) return; if (editor?.active) { editor.command('RESET'); return; } if (state.solved) return; remember(); session = resetSession(session); load(session.current.levelId, session.current.outside, session.current, true); solutionPanel.record({ command: 'RESET' }, session); notify('关卡已重置，按 Z 可以撤销。'); }
-function enter(targetId?: string): void {
+async function enter(targetId?: string): Promise<void> {
   if (solutionPanel?.active) return;
   if (editor?.active) { editor.command('ENTER', targetId); return; }
   if (resolving) return;
@@ -252,18 +253,30 @@ function enter(targetId?: string): void {
     if (targetId) { const shortcut = state.cells.find(c => c.portal?.target === targetId)?.portal?.shortcut; notify(!levelsById.has(targetId) ? '这个入口尚未开放。' : shortcut && !session.visited.includes(targetId) ? '快捷入口需要先抵达目标关卡。' : '先走到入口旁边，再按 E 进入。'); }
     return;
   }
+  const token = ++playback; resolving = true; renderHud();
+  const settled = await scene.animatePortal(portalEntryTargets(data, session, next.current.levelId));
+  if (!settled || token !== playback) return;
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
   solutionPanel.record({ command: 'ENTER', target: next.current.levelId }, session);
 }
-function exit(): void {
+async function exit(): Promise<void> {
   if (solutionPanel?.active) { solutionPanel.close(); return; }
   if (editor?.active) { editor.command('EXIT'); return; }
   if (resolving && state.solved) return;
   if (resolving) cancelPlayback();
   const next = exitLevel(data, session);
   if (!next) return;
+  await showExit(next);
+}
+async function showExit(next: Session): Promise<void> {
+  const origins = portalExitOrigins(session, next);
   remember(); session = next; load(next.current.levelId, next.current.outside, next.current);
   solutionPanel.record({ command: 'EXIT' }, session);
+  if (!origins) return;
+  const token = ++playback; resolving = true; renderHud();
+  const settled = await scene.animatePortal(origins, true);
+  if (!settled || token !== playback) return;
+  resolving = false; renderHud(); flushInput();
 }
 function nextLevel(): void {
   const main = data.levels.filter(l => l.category === category && (category === 'lab' || l.worldId === selectedWorld)).sort(compareLevels), index = main.findIndex(l => l.id === level.id);
@@ -289,10 +302,10 @@ async function showSolution(current: Session, snap: boolean): Promise<void> {
   while (ctrlHeld && index < frames.length) {
     const frame = frames[index++]; $('#step-status').hidden = false;
     $('#step-status').textContent = `Ctrl · ${index}/${frames.length} · ${frame.phase === 'heat' ? '热量平衡' : '移动与活塞'}`;
-    scene.update({ ...state, ...frame, phase: 'ready', solved: false }, false, 'resolving');
+    scene.update({ ...state, ...frame, phase: 'ready', solved: false }, false, 'resolving', animationTiming.detailMotion);
     await new Promise<void>(resolve => {
       const finish = () => { clearTimeout(timer); if (releaseDetail === finish) releaseDetail = undefined; resolve(); };
-      const timer = setTimeout(finish, 260); releaseDetail = finish;
+      const timer = setTimeout(finish, animationTiming.detailHold); releaseDetail = finish;
     });
     if (token !== playback) return;
   }

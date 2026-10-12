@@ -25,8 +25,8 @@ test('alternating piston chains present every stroke and its heat balance', () =
     phase: i % 2 ? 'heat' : 'motion' }));
   const playback = turnPlayback(frames);
   assert.deepEqual(playback.map(step => step.frame), frames);
-  assert.equal(playback.at(-1)!.at, 1404);
-  assert.ok(playback.every((step, i) => !i || step.at - playback[i - 1].at >= 36));
+  assert.equal(playback.at(-1)!.at, 1716);
+  assert.ok(playback.every((step, i) => !i || step.at - playback[i - 1].at >= 44));
   const loop = turnPlayback([...frames, ...frames, ...frames, ...frames]);
-  assert.equal(loop.at(-1)!.at, 2000);
+  assert.equal(loop.at(-1)!.at, 2400);
 });

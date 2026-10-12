@@ -1,3 +1,4 @@
+import { animationTiming } from './turn-playback';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
@@ -81,6 +82,8 @@ export class GameScene {
   private azimuth = -9;
   private running = true;
   private freeView = false;
+  private motionDuration = animationTiming.move;
+  private portalMotion?: { start: number; duration: number; from: THREE.Vector3[]; to: THREE.Vector3[] };
   private motionWaiters: ((settled: boolean) => void)[] = [];
   onHover?: (cellKey: number | null, state?: State) => void;
   onPortalClick?: (target: string) => void;
@@ -475,7 +478,7 @@ export class GameScene {
     this.resize();
   }
 
-  update(state: State, snap = false, activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle'): void {
+  update(state: State, snap = false, activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle', duration?: number): void {
     if (!this.level) return;
     this.cancelMotionWaits();
     const { width: w, height: h } = this.level;
@@ -502,7 +505,10 @@ export class GameScene {
       const group = p.rod.parent!, piston = state.pistons?.find(a => group.userData.cellKeys.includes(a.baseKey));
       p.target = piston?.expanded ? 1 : 0.02; if (snap) p.rod.scale.y = p.target;
     });
-    if (snap || moved) this.lastStep = performance.now();
+    if (snap || moved || duration !== undefined) {
+      this.motionDuration = duration ?? (state.pistons?.some(p => p.expanded !== previous?.pistons?.find(old => old.baseKey === p.baseKey)?.expanded) ? animationTiming.piston : animationTiming.move);
+      this.lastStep = performance.now();
+    }
     if (this.hoverEvent) this.hover(this.hoverEvent);
   }
 
@@ -521,8 +527,21 @@ export class GameScene {
     });
   }
 
+  animatePortal(points: { x: number; y: number }[], emerging = false): Promise<boolean> {
+    this.cancelMotionWaits();
+    if (!this.level) return Promise.resolve(false);
+    this.demons.forEach((model, i) => {
+      const point = points[i]; if (!point) return;
+      const position = new THREE.Vector3(point.x - (this.level!.width - 1) / 2, 0.055, point.y - (this.level!.height - 1) / 2);
+      if (emerging) model.group.position.copy(position); else model.target.copy(position);
+    });
+    this.lastStep = performance.now();
+    this.portalMotion = { start: this.lastStep, duration: animationTiming.portal, from: this.demons.map(model => model.group.position.clone()), to: this.demons.map(model => model.target.clone()) };
+    return this.whenSettled();
+  }
+
   whenSettled(): Promise<boolean> { return new Promise(resolve => { this.motionWaiters.push(resolve); }); }
-  cancelMotionWaits(): void { this.motionWaiters.splice(0).forEach(resolve => resolve(false)); }
+  cancelMotionWaits(): void { this.portalMotion = undefined; this.motionWaiters.splice(0).forEach(resolve => resolve(false)); }
 
   setFreeView(enabled: boolean): void {
     if (this.freeView === enabled) return;
@@ -595,19 +614,22 @@ export class GameScene {
   private animate(): void {
     const now = performance.now(), dt = Math.min((now - this.previousTime) / 1000, 0.1); this.previousTime = now;
     if (!this.running) return;
-    const finished = now - this.lastStep >= 110;
-    const factor = finished ? 1 : 1 - Math.exp(-36 * dt);
+    const finished = now - this.lastStep >= this.motionDuration;
+    const factor = finished ? 1 : 1 - Math.exp(-36 * dt * animationTiming.move / this.motionDuration);
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
     if (finished && this.mergingBodies && this.shownState) this.syncBodies(this.shownState, true);
-    const moving = this.activity !== 'idle' && now - this.lastStep < 110;
+    const moving = this.activity !== 'idle' && now - this.lastStep < this.motionDuration;
     const active = this.demons.filter(d => d.temperature !== 1 && d.awake), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
     const thinking = this.demons.some(d => !d.awake && d.temperature !== 1);
     const text = demonStatus(active.length, this.demons.length, this.activity, moving, thinking, this.shownState?.phase === 'cycling');
     const statusKey = `${temperature}:${text}`;
     if (statusKey !== this.status) { this.status = statusKey; this.onStatus?.(temperature, text); }
-    for (const model of this.demons) {
+    for (const [index, model] of this.demons.entries()) {
       const hot = model.temperature === 1, inThought = !hot && !model.awake;
-      model.group.position.lerp(model.target, factor);
+      if (this.portalMotion) {
+        const t = Math.min(1, (now - this.portalMotion.start) / this.portalMotion.duration);
+        model.group.position.lerpVectors(this.portalMotion.from[index], this.portalMotion.to[index], t * t * (3 - 2 * t));
+      } else model.group.position.lerp(model.target, factor);
       model.eyes.visible = !hot && !inThought; model.faintEyes.visible = hot; model.thinkingEyes.visible = inThought;
       model.group.position.y = 0.055;
       model.group.rotation.x = 0;
@@ -629,7 +651,8 @@ export class GameScene {
       model.face.quaternion.copy(model.group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(cameraFacing));
     }
     this.composer.render();
-    if (this.motionWaiters.length) {
+    if (this.portalMotion && now - this.portalMotion.start >= this.portalMotion.duration) this.portalMotion = undefined;
+    if (this.motionWaiters.length && !this.portalMotion) {
       const distances = [...this.pieces].map(([key, group]) => group.position.distanceTo(this.targets.get(key)!));
       distances.push(...this.demons.map(d => Math.hypot(d.group.position.x - d.target.x, d.group.position.z - d.target.z)));
       distances.push(...this.pistonRods.map(p => Math.abs(p.rod.scale.y - p.target)));
