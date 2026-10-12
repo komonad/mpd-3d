@@ -97,12 +97,14 @@ export class LevelEditor {
   private remember(): void { this.editHistory.push(structuredClone(this.project)); if (this.editHistory.length > 100) this.editHistory.shift(); }
   private stop(): void { this.generation++; }
 
-  open(current: Level): void {
+  open(current?: Level): void {
     if (!this.ready) {
       try { const stored = localStorage.getItem(draftKey); if (stored) this.project = parseProject(stored); } catch { this.project = editorPresets(); }
       addMechanismPresets(this.project);
       this.ready = true;
     }
+    this.remember();
+    this.copyLevel(current ?? blankLevel(`editor-${Date.now().toString(36)}`));
     this.active = true; this.panel.hidden = false; document.querySelector('.workspace')!.classList.add('editor-open'); document.body.classList.add('editor-active');
     this.previewToolbar.hidden = false;
     document.body.classList.remove('sidebar-open'); this.switchToEdit();

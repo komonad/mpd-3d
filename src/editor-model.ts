@@ -34,8 +34,8 @@ export function parseOperations(text: string): Operation[] {
 }
 export const parseCommands = (text: string): Command[] => parseOperations(text).map(o => o.command);
 
-export function blankLevel(id = 'editor-room'): Level {
-  const level: Level = { id, label: '自建', title: '新关卡', category: 'lab', width: 9, height: 9, cells: [], players: [{ x: 2, y: 6 }], goals: [], tail: [0] };
+export function blankLevel(id = 'editor-room', width = 9, height = 9): Level {
+  const level: Level = { id, label: '自建', title: '新关卡', category: 'lab', width, height, cells: [], players: [{ x: 2, y: Math.min(6, height - 2) }], goals: [], tail: [0] };
   const wall = new Set<string>();
   for (let y = 0; y < level.height; y++) for (let x = 0; x < level.width; x++) if (x === 0 || y === 0 || x === level.width - 1 || y === level.height - 1) wall.add(`${x},${y}`);
   const directions = [[-1, 0], [0, 1], [1, 0], [0, -1]];

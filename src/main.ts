@@ -4,6 +4,7 @@ import demonIcon from './assets/demon-icon.png';
 import { installLocalImport, readLocalLevels } from './local-levels';
 import { GameScene } from './scene';
 import { LevelEditor } from './editor';
+import { editorTestWorldId, isEditorTestLevel, withEditorTestWorld } from './editor-test-world';
 import { SolutionPanel } from './solution-panel';
 import { cloneState, exposeOpenWelds, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
@@ -56,7 +57,7 @@ app.innerHTML = `
     </aside>
     <section class="play-area" aria-label="游戏区域">
       <div class="stage-header">
-      <div class="stage-heading"><div><div class="breadcrumbs"><button id="breadcrumb-world">世界 01</button><span>/</span><span id="breadcrumb-level">关卡 01</span></div><h2 id="level-title">初次推动</h2><p id="level-description">将方块推到蓝色六边形终点。</p></div><div class="level-badge" id="level-badge">1—01</div></div>
+      <div class="stage-heading"><div><div class="breadcrumbs"><button id="breadcrumb-world">世界 01</button><span>/</span><span id="breadcrumb-level">关卡 01</span></div><div class="level-title-row"><h2 id="level-title">初次推动</h2><button id="edit-level-button">编辑此关卡</button></div><p id="level-description">将方块推到蓝色六边形终点。</p></div><div class="level-badge" id="level-badge">1—01</div></div>
       <div class="stage-stats"><div><span>MOVES</span><b id="move-count">000</b><small>步数</small></div><div><span>PUSHES</span><b id="push-count">000</b><small>推动</small></div></div>
       <div class="demon-status" id="demon-status" role="status"><i></i><span>小妖 · 常温</span></div>
       </div>
@@ -89,6 +90,8 @@ let replayBackup: { session: Session; undo: Snapshot[]; redo: Snapshot[]; world:
 let session: Session, solved = new Set<string>(), undoHistory: Snapshot[] = [], redoHistory: Snapshot[] = [];
 let selectedWorld: string;
 let category: 'main' | 'extra' = 'main';
+let testBackup: { session: Session; undo: Snapshot[]; redo: Snapshot[] } | undefined;
+const testStorageKey = 'maxwell3d-editor-tests-v1';
 let preferences: Preferences = { tilt: 32, light: 1.05, quality: true, grid: false, sound: true, freeView: false };
 let levelsById: Map<string, Level>, labels: Map<string, string>;
 let toastTimer: ReturnType<typeof setTimeout>, audio: AudioContext | undefined;
@@ -108,7 +111,7 @@ function snapshotData(): Snapshot { const { turnFrames: _, ...current } = state;
 function snapshot(): Snapshot { return structuredClone(snapshotData()); }
 function canExit(): boolean { return session.hints.length > 0 || !!session.entries[state.levelId]; }
 function currentWorld(): World { return data.worlds?.find(w => w.id === selectedWorld) ?? { id: data.world, index: 1, title: '温度的世界', description: '冷与热之间，寻找平衡。', supported: true }; }
-function remember(): void { undoHistory.push(snapshot()); if (undoHistory.length > 512) undoHistory.shift(); redoHistory = []; }
+function remember(previous = snapshot()): void { undoHistory.push(previous); if (undoHistory.length > 512) undoHistory.shift(); redoHistory = []; }
 function notify(message: string): void { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').classList.add('visible'); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 2600); }
 function playTone(kind: 'move' | 'push' | 'solve' | 'undo'): void {
   if (!preferences.sound) return;
@@ -124,17 +127,19 @@ function playTone(kind: 'move' | 'push' | 'solve' | 'undo'): void {
 }
 function save(): void {
   if (solutionPanel?.active) return;
-  try { localStorage.setItem(storageKey, JSON.stringify(snapshotData())); $('#save-status').textContent = '进度自动保存在本机'; }
+  try { localStorage.setItem(isEditorTestLevel(level) ? testStorageKey : storageKey, JSON.stringify(snapshotData())); $('#save-status').textContent = isEditorTestLevel(level) ? '测试场景独立保存在本机' : '进度自动保存在本机'; }
   catch { $('#save-status').textContent = '当前浏览器无法保存进度'; }
 }
 function renderLevels(): void {
   const signature = JSON.stringify([selectedWorld, category, level.id, [...solved]]);
   if (signature === sidebarSignature) return; sidebarSignature = signature;
   const world = currentWorld(), available = new Set(unlockedWorlds(data, solved).map(w => w.id));
-  const list = data.levels.filter(l => l.category === category && (l.worldId ?? data.world) === selectedWorld)
+  const testing = selectedWorld === editorTestWorldId;
+  const list = data.levels.filter(l => (testing ? l.id !== editorTestWorldId : l.category === category) && (l.worldId ?? data.world) === selectedWorld)
     .sort(compareLevels);
-  $('#world-picker').innerHTML = (data.worlds ?? [world]).map(w => `<option value="${w.id}" ${w.id === selectedWorld ? 'selected' : ''} ${available.has(w.id) ? '' : 'disabled'}>${w.index === 0 ? '大世界' : `世界 ${w.index} · ${w.title}`}${w.supported ? available.has(w.id) ? '' : ' · 未解锁' : ' · 尚未开放'}</option>`).join('');
-  $('#chapter-eyebrow').textContent = world.index === 0 ? 'OVERWORLD' : `WORLD ${String(world.index).padStart(2, '0')}`;
+  $('#world-picker').innerHTML = (data.worlds ?? [world]).map(w => `<option value="${w.id}" ${w.id === selectedWorld ? 'selected' : ''} ${available.has(w.id) ? '' : 'disabled'}>${w.id === editorTestWorldId ? w.title : w.index === 0 ? '大世界' : `世界 ${w.index} · ${w.title}`}${w.supported ? available.has(w.id) ? '' : ' · 未解锁' : ' · 尚未开放'}</option>`).join('');
+  $('#chapter-eyebrow').textContent = testing ? 'MECHANISM SCENES' : world.index === 0 ? 'OVERWORLD' : `WORLD ${String(world.index).padStart(2, '0')}`;
+  $('.level-tabs').hidden = testing; $('.progress-label').hidden = testing; $('.progress-track').hidden = testing;
   $('#hub-button').hidden = !data.hub || selectedWorld === data.hub;
   $('#header-world').textContent = world.title;
   $('#world-title').textContent = world.title; const subtitle = document.createElement('span'); subtitle.textContent = world.description; $('#world-title').append(subtitle);
@@ -153,7 +158,7 @@ function renderLevels(): void {
 }
 function renderHud(): void {
   $('.play-area').setAttribute('aria-busy', String(resolving));
-  $('#breadcrumb-world').textContent = currentWorld().index === 0 ? '大世界' : `世界 ${String(currentWorld().index).padStart(2, '0')}`;
+  $('#breadcrumb-world').textContent = isEditorTestLevel(level) ? '编辑器测试关卡' : currentWorld().index === 0 ? '大世界' : `世界 ${String(currentWorld().index).padStart(2, '0')}`;
   $('#move-count').textContent = String(state.moves).padStart(3, '0'); $('#push-count').textContent = String(state.pushes).padStart(3, '0');
   $('#level-title').textContent = levelName(level); $('#level-badge').textContent = levelIdentifier(level);
   $('#breadcrumb-level').textContent = level.category === 'world' ? '世界地图' : level.category === 'hint' ? `${levelIdentifier(level)} 提示` : level.category === 'lab' ? '机制实验室' : `关卡 ${levelIdentifier(level)}`;
@@ -185,7 +190,22 @@ function selectLevel(id: string): void {
   solutionPanel?.close();
   const found = levelsById.get(id); if (!found) return;
   if (found.worldId && !unlockedWorlds(data, solved).some(w => w.id === found.worldId)) { notify('这个世界的关卡数据尚未导入。'); return; }
-  remember(); session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
+  if (isEditorTestLevel(found) === isEditorTestLevel(level)) remember();
+  if (isEditorTestLevel(found) && !isEditorTestLevel(level)) {
+    testBackup = { session: snapshot(), undo: undoHistory, redo: redoHistory };
+    session = selectSession(data, found); undoHistory = []; redoHistory = [];
+    try {
+      const saved = JSON.parse(localStorage.getItem(testStorageKey) ?? 'null');
+      if (Array.isArray(saved?.solved) && Array.isArray(saved?.visited)) session = selectSession(data, found,
+        saved.solved.filter((id: string) => levelsById.has(id) && isEditorTestLevel(levelsById.get(id)!)), saved.visited.filter((id: string) => levelsById.has(id) && isEditorTestLevel(levelsById.get(id)!)));
+    } catch { /* Test progress can start from an empty session. */ }
+    solved = new Set(session.solved);
+  } else if (!isEditorTestLevel(found) && isEditorTestLevel(level)) {
+    session = testBackup?.session ?? startSession(data); undoHistory = testBackup?.undo ?? []; redoHistory = testBackup?.redo ?? [];
+    solved = new Set(session.solved); testBackup = undefined;
+    remember(structuredClone(session));
+  }
+  session = selectSession(data, found, [...solved], session.visited); load(id, 0, session.current);
   if (solutionPanel?.isRecording) { solutionPanel.beginRecording(); notify('快速跳转后，录制从当前场景的新起点继续。'); }
 }
 async function step(direction: Direction): Promise<void> {
@@ -198,6 +218,7 @@ async function step(direction: Direction): Promise<void> {
   const next = move(level, state, direction); if (!next) return;
   remember(); const pushing = next.pushes > state.pushes; state = next;
   recordState(session, state, level); solved = new Set(session.solved);
+  if (isEditorTestLevel(level) && level.category === 'lab' && state.solved && !session.solved.includes(level.id)) { session.solved.push(level.id); solved.add(level.id); }
   solutionPanel.record({ command: (['L', 'D', 'R', 'U'] as const)[direction] }, session);
   playTone(state.solved ? 'solve' : pushing ? 'push' : 'move');
   const token = ++playback;
@@ -353,7 +374,8 @@ async function toggleFullscreen(): Promise<void> {
   updateFullscreen();
 }
 function bind(): void {
-  $('#editor-button').onclick = () => { solutionPanel.close(); if (editor.active) editor.close(); else { cancelPlayback(); $('#editor-button').setAttribute('data-origin', level.id); editor.open(level); } };
+  const openEditor = (current?: Level) => { solutionPanel.close(); cancelPlayback(); $('#editor-button').setAttribute('data-origin', level.id); try { editor.open(current); } catch (error) { notify(error instanceof Error ? error.message : String(error)); } };
+  $('#editor-button').onclick = () => openEditor(); $('#edit-level-button').onclick = () => openEditor(level);
   $('#solutions-button').onclick = () => { if (editor.active) editor.close(); solutionPanel.open(level.id); };
   $('#level-list').addEventListener('click', e => { const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-level]'); if (button) selectLevel(button.dataset.level!); });
   $('#main-tab').onclick = () => { category = 'main'; renderLevels(); }; $('#extra-tab').onclick = () => { category = 'extra'; renderLevels(); };
@@ -450,6 +472,7 @@ async function start(): Promise<void> {
     }
     storageKey = data.edition === 'preview' ? 'maxwell3d-save-preview-v2' : 'maxwell3d-save-v2';
     localImport.update(data, !!local);
+    data = withEditorTestWorld(data);
     levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
     solutionPanel = new SolutionPanel(data, {
@@ -476,7 +499,7 @@ async function start(): Promise<void> {
     try {
       const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
       if (value && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) {
-        if (levelsById.has(value.current.levelId)) saved = value;
+        if (levelsById.has(value.current.levelId) && !isEditorTestLevel(levelsById.get(value.current.levelId)!)) saved = value;
         else if (/^lab-\d+$/.test(value.current.levelId)) {
           const initial = startSession(data);
           saved = createSession(levelsById.get(initial.current.levelId)!, value.solved.filter((id: string) => levelsById.has(id)), (value.visited ?? []).filter((id: string) => levelsById.has(id)));
