@@ -5,8 +5,9 @@ import type { BlockProperties, Dataset, Direction, Level, Point, State } from '.
 export type Command = 'L' | 'D' | 'R' | 'U' | 'RESET' | 'UNDO' | 'REDO' | 'ENTER' | 'EXIT' | 'HINT';
 export interface Operation { command: Command; target?: string }
 export interface Checkpoint { step: number; path: string; equals: unknown }
-export interface Scenario { name: string; levelId: string; actions: string; checks: Checkpoint[]; source?: string }
-export interface EditorProject { version: 1; levels: Level[]; currentId: string; scenarios: Scenario[] }
+export interface InitialProgress { solved?: string[]; visited?: string[] }
+export interface Scenario { name: string; levelId: string; actions: string; checks: Checkpoint[]; source?: string; progress?: InitialProgress }
+export interface EditorProject { version: 1; levels: Level[]; currentId: string; scenarios: Scenario[]; rootId?: string; progress?: InitialProgress }
 export interface CheckResult extends Checkpoint { actual: unknown; passed: boolean }
 export interface ReplayRow extends Operation { step: number; accepted: boolean; state: State; checks: CheckResult[] }
 export interface ReplayResult { rows: ReplayRow[]; checks: CheckResult[]; passed: boolean; session: Session }
@@ -96,12 +97,28 @@ export function parseProject(text: string): EditorProject {
     if (ids.has(level.id)) throw new Error('项目内关卡 ID 不能重复。'); ids.add(level.id);
   }
   if (!ids.has(project.currentId)) throw new Error('当前关卡不存在。');
+  if (project.rootId !== undefined && !ids.has(project.rootId)) throw new Error('测试起点不存在。');
+  validateProgress(project.progress);
+  for (const level of project.levels) {
+    const seen = new Set([level.id]); let parent = level.parentId;
+    while (parent && ids.has(parent)) {
+      if (seen.has(parent)) throw new Error('关卡层级不能循环包含。');
+      seen.add(parent); parent = project.levels.find(l => l.id === parent)?.parentId;
+    }
+  }
   if (!Array.isArray(project.scenarios)) throw new Error('scenarios 必须是数组。');
   for (const scenario of project.scenarios) {
     if (!scenario || typeof scenario.name !== 'string' || !ids.has(scenario.levelId) || typeof scenario.actions !== 'string' || scenario.source !== undefined && typeof scenario.source !== 'string') throw new Error('测试用例的名称、关卡、操作序列或来源无效。');
     const count = parseCommands(scenario.actions).length; validateChecks(scenario.checks, count);
+    validateProgress(scenario.progress);
   }
   return structuredClone(project);
+}
+
+export function validateProgress(progress?: InitialProgress): void {
+  if (progress === undefined) return;
+  if (!progress || typeof progress !== 'object') throw new Error('初始进度必须是对象。');
+  for (const values of [progress.solved, progress.visited]) if (values !== undefined && (!Array.isArray(values) || values.length > 10000 || values.some(id => typeof id !== 'string' || !id.trim()))) throw new Error('初始进度需要关卡 ID 数组。');
 }
 
 export function validateChecks(checks: Checkpoint[], count: number): void {
@@ -142,8 +159,8 @@ export class Simulation {
   session: Session;
   private undo: Session[] = [];
   private redo: Session[] = [];
-  constructor(readonly data: Dataset, level: Level, checkpoint?: SimulationCheckpoint) {
-    this.session = checkpoint ? structuredClone(checkpoint.session) : selectSession(data, level);
+  constructor(readonly data: Dataset, level: Level, checkpoint?: SimulationCheckpoint, progress: InitialProgress = {}) {
+    this.session = checkpoint ? structuredClone(checkpoint.session) : selectSession(data, level, progress.solved, progress.visited);
     this.undo = checkpoint ? structuredClone(checkpoint.undo) : [];
     this.redo = checkpoint ? structuredClone(checkpoint.redo) : [];
   }
@@ -160,7 +177,10 @@ export class Simulation {
     const direction = moves[command];
     if (direction !== undefined) {
       const state = move(this.level, this.session.current, direction);
-      if (state) { next = structuredClone(this.session); recordState(next, state, this.level); }
+      if (state) {
+        next = structuredClone(this.session); recordState(next, state, this.level);
+        if (state.solved && this.level.category === 'lab' && !next.solved.includes(this.level.id)) next.solved.push(this.level.id);
+      }
     } else if (command === 'RESET') next = resetSession(this.session);
     else if (command === 'ENTER') next = enterPortal(this.data, this.session, target);
     else if (command === 'EXIT') next = exitLevel(this.data, this.session);
@@ -173,7 +193,8 @@ export class Simulation {
 export function replayScenario(data: Dataset, scenario: Scenario): ReplayResult {
   const level = data.levels.find(l => l.id === scenario.levelId); if (!level) throw new Error('测试关卡不存在。');
   const commands = parseOperations(scenario.actions); validateChecks(scenario.checks, commands.length);
-  const simulation = new Simulation(data, level), rows: ReplayRow[] = [], results = checkState(simulation.session.current, scenario.checks, 0);
+  validateProgress(scenario.progress);
+  const simulation = new Simulation(data, level, undefined, scenario.progress), rows: ReplayRow[] = [], results = checkState(simulation.session.current, scenario.checks, 0);
   for (const [i, operation] of commands.entries()) {
     const accepted = simulation.apply(operation.command, operation.target), state = structuredClone(simulation.session.current), checks = checkState(state, scenario.checks, i + 1, accepted);
     results.push(...checks); rows.push({ step: i + 1, ...operation, accepted, state, checks });

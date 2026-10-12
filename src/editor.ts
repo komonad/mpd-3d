@@ -1,5 +1,7 @@
 import './editor.css';
-import { checkState, blankLevel, observableState, parseCommands, parseOperations, parseProject, projectDataset, removeCell, Simulation, validateChecks, validateLevel, type Checkpoint, type CheckResult, type Command, type EditorProject, type ReplayRow, type Scenario } from './editor-model';
+import { checkState, blankLevel, observableState, parseCommands, parseOperations, parseProject, projectDataset, removeCell, Simulation, validateChecks, validateLevel, type Checkpoint, type CheckResult, type Command, type EditorProject, type InitialProgress, type ReplayRow, type Scenario } from './editor-model';
+import { arrangeEditor, createChild, projectRooms, removeRoom, setParent } from './editor-workspace';
+import { editorDemon } from './editor-demon';
 import { addMechanismPresets, editorPresets } from './editor-presets';
 import { addReferenceReplays } from './reference-replays';
 import { levelIdentifier, levelLabels } from './level-labels';
@@ -16,6 +18,7 @@ export class LevelEditor {
   playing = false;
   private project: EditorProject = editorPresets();
   private panel = document.createElement('aside');
+  private previewToolbar = document.createElement('div');
   private simulation?: Simulation;
   private selected?: Point;
   private selectedObject = '';
@@ -27,12 +30,13 @@ export class LevelEditor {
   private ready = false;
   private shownId?: string;
   private runStartId = '';
+  private runProgress: InitialProgress = {};
   private initialChecks: CheckResult[] = [];
   get hasBoundaryPistons(): boolean { return !!this.simulation?.session.current.pistons?.some(p => p.model === 'boundary'); }
-  get discoveredLevels(): string[] { return this.simulation?.session.visited ?? [this.draft.id]; }
+  get discoveredLevels(): string[] { return this.simulation?.session.visited ?? [...this.project.progress?.visited ?? [], this.draft.id]; }
+  get labels(): Map<string, string> { return new Map(this.data.levels.map(l => [l.id, l.title ?? l.displayName ?? l.label])); }
 
   constructor(private base: Dataset, private scene: GameScene, private onClose: () => void) {
-    addReferenceReplays(base, this.project);
     this.panel.className = 'editor-panel'; this.panel.hidden = true; this.panel.setAttribute('aria-label', '关卡编辑器');
     this.panel.innerHTML = `
       <div class="editor-heading"><div><small>LEVEL WORKBENCH</small><h1>关卡实验台</h1></div><button id="editor-close">返回游戏</button></div>
@@ -76,11 +80,15 @@ export class LevelEditor {
       <details><summary>操作与热量时间线</summary><div id="editor-timeline"></div><label>当前状态 JSON<textarea id="editor-state" rows="6" readonly spellcheck="false"></textarea></label><button id="editor-export-trace">导出状态轨迹</button></details>
       <details><summary>项目 JSON · 关卡与测试</summary><p class="editor-caption">包含全部编辑关卡、活塞内容物和检查点。也可导入单个 Level JSON；原版关卡文件不受编辑影响。</p><label>项目内容<textarea id="editor-json" rows="8" spellcheck="false"></textarea></label><div class="editor-row"><button id="editor-refresh-json">读取项目 JSON</button><button id="editor-import">应用 JSON</button><button id="editor-export">导出项目</button><label class="editor-file">导入文件<input id="editor-file" type="file" accept=".json,application/json"/></label></div></details>
       <p id="editor-errors" role="alert"></p><p class="editor-caption" id="editor-save-status">草稿独立保存在本机。</p>`;
+    arrangeEditor(this.panel);
+    this.previewToolbar.className = 'editor-preview-toolbar'; this.previewToolbar.hidden = true;
+    this.previewToolbar.innerHTML = '<span id="editor-preview-mode">场景预览</span><button id="editor-preview-play">▶ 测试</button><button id="editor-preview-stop">■ 停止</button><button id="editor-preview-restore">↺ 复位测试</button>';
+    document.querySelector('.play-area')!.prepend(this.previewToolbar);
     document.querySelector('.workspace')!.prepend(this.panel);
     this.bind();
   }
 
-  private el<T extends HTMLElement = HTMLElement>(id: string): T { return this.panel.querySelector<T>(`#${id}`)!; }
+  private el<T extends HTMLElement = HTMLElement>(id: string): T { return (this.panel.querySelector<T>(`#${id}`) ?? this.previewToolbar.querySelector<T>(`#${id}`))!; }
   private value(id: string): string { return this.el<HTMLInputElement>(id).value; }
   private get draft(): Level { return this.project.levels.find(l => l.id === this.project.currentId)!; }
   private get data(): Dataset { return projectDataset(this.base, this.project); }
@@ -91,13 +99,15 @@ export class LevelEditor {
 
   open(current: Level): void {
     if (!this.ready) {
-      try { const stored = localStorage.getItem(draftKey); if (stored) this.project = parseProject(stored); else this.copyLevel(current); } catch { this.copyLevel(current); }
+      try { const stored = localStorage.getItem(draftKey); if (stored) this.project = parseProject(stored); } catch { this.project = editorPresets(); }
+      addMechanismPresets(this.project);
       this.ready = true;
     }
     this.active = true; this.panel.hidden = false; document.querySelector('.workspace')!.classList.add('editor-open'); document.body.classList.add('editor-active');
+    this.previewToolbar.hidden = false;
     document.body.classList.remove('sidebar-open'); this.switchToEdit();
   }
-  close(): void { this.stop(); this.active = false; this.panel.hidden = true; document.querySelector('.workspace')!.classList.remove('editor-open'); document.body.classList.remove('editor-active'); this.onClose(); }
+  close(): void { this.stop(); this.active = false; this.panel.hidden = true; this.previewToolbar.hidden = true; document.querySelector('.workspace')!.classList.remove('editor-open'); document.body.classList.remove('editor-active'); this.onClose(); }
   private copyLevel(level: Level): void {
     const copy = structuredClone(level), index = this.project.levels.findIndex(l => l.id === copy.id);
     if (index < 0 && this.project.levels.length >= 128) throw new Error('项目最多包含 128 个关卡。');
@@ -112,20 +122,32 @@ export class LevelEditor {
     this.el('editor-layout').hidden = this.playing; this.el('editor-play-controls').hidden = !this.playing;
     this.el('editor-edit').setAttribute('aria-pressed', String(!this.playing)); this.el('editor-play').setAttribute('aria-pressed', String(this.playing));
     this.el('editor-play').textContent = this.playing ? '试玩中' : '开始试玩';
+    this.el('editor-preview-mode').textContent = this.playing ? '测试运行中' : '场景预览';
+    this.el<HTMLButtonElement>('editor-preview-stop').disabled = !this.playing;
+    this.el<HTMLButtonElement>('editor-preview-play').disabled = this.playing;
+    for (const id of ['editor-child', 'editor-new', 'editor-copy', 'editor-remove-room', 'editor-load-native', 'editor-parent', 'editor-hint', 'editor-root', 'editor-solved', 'editor-visited', 'editor-progress-apply']) this.el<HTMLInputElement>(id).disabled = this.playing;
   }
   private switchToEdit(): void {
-    this.stop(); this.playing = false; this.simulation = undefined; this.currentStep = 0; this.rows = []; this.layer = undefined; this.selected = undefined;
+    this.stop(); this.playing = false; this.simulation = undefined; this.currentStep = 0; this.rows = []; this.layer = undefined; this.selected = undefined; this.selectedObject = '';
+    this.el<HTMLSelectElement>('editor-property-phase').value = 'before';
     this.initialChecks = []; this.el('editor-timeline').replaceChildren(); this.el('editor-results').replaceChildren(); this.el('editor-report').textContent = '';
     this.refresh(); this.controls(); this.preview(true);
   }
   private refresh(): void {
-    this.el<HTMLSelectElement>('editor-room').replaceChildren(...this.project.levels.map(l => option(l.id, l.title ?? levelIdentifier(l))));
+    const rooms = projectRooms(this.project);
+    this.el<HTMLSelectElement>('editor-room').replaceChildren(...rooms.map(({ level: l, depth }) => option(l.id, `${'　'.repeat(depth)}${depth ? '└ ' : ''}${l.title ?? levelIdentifier(l)}`)));
+    const tree = this.el('editor-tree'); tree.replaceChildren();
+    for (const { level, depth } of rooms) { const button = document.createElement('button'); button.textContent = `${level.title ?? level.label} · ${level.id}`; button.style.paddingLeft = `${12 + depth * 18}px`; button.setAttribute('aria-pressed', String(level.id === this.draft.id)); button.onclick = () => { this.project.currentId = level.id; this.switchToEdit(); }; tree.append(button); }
+    for (const id of ['editor-parent', 'editor-hint', 'editor-root']) { const select = this.el<HTMLSelectElement>(id); select.replaceChildren(option('', id === 'editor-root' ? '当前编辑场景' : '无'), ...(id === 'editor-root' ? this.project.levels : this.data.levels).filter(l => id !== 'editor-parent' || l.id !== this.draft.id).map(l => option(l.id, `${l.title ?? levelIdentifier(l)} · ${l.id}`))); select.value = id === 'editor-root' ? this.project.rootId ?? '' : id === 'editor-parent' ? this.draft.parentId ?? '' : this.draft.hintId ?? ''; }
+    this.el<HTMLTextAreaElement>('editor-solved').value = this.project.progress?.solved?.join('\n') ?? '';
+    this.el<HTMLTextAreaElement>('editor-visited').value = this.project.progress?.visited?.join('\n') ?? '';
     this.el<HTMLSelectElement>('editor-room').value = this.project.currentId;
     this.el<HTMLInputElement>('editor-title').value = this.draft.title ?? this.draft.label;
     this.el<HTMLInputElement>('editor-width').value = String(this.draft.width); this.el<HTMLInputElement>('editor-height').value = String(this.draft.height);
     this.el<HTMLSelectElement>('editor-library').replaceChildren(...this.base.levels.map(l => option(l.id, `${levelIdentifier(l)} · ${l.title ?? `${l.width} × ${l.height}`}`)));
-    this.el<HTMLSelectElement>('editor-target').replaceChildren(...this.data.levels.map(l => option(l.id, `${levelIdentifier(l)} · ${l.title ?? l.id}`)));
-    this.el<HTMLSelectElement>('editor-target').value = this.draft.id;
+    const target = this.value('editor-target');
+    this.el<HTMLSelectElement>('editor-target').replaceChildren(...this.data.levels.map(l => option(l.id, `${l.title ?? levelIdentifier(l)} · ${l.id}`)));
+    this.el<HTMLSelectElement>('editor-target').value = this.data.levels.some(l => l.id === target) ? target : this.draft.id;
     this.el<HTMLSelectElement>('editor-layer').replaceChildren(option('', '地面'), ...(this.draft.pistons ?? []).map(p => option(p.baseKey, `活塞 #${p.order + 1} 内部${p.expanded ? ' · 已展开' : ''}`)));
     this.el<HTMLSelectElement>('editor-layer').value = this.layer === undefined ? '' : String(this.layer);
     this.refreshCases(); this.renderGrid(); this.persist();
@@ -150,7 +172,8 @@ export class LevelEditor {
       button.className = `editor-square${cell ? ' occupied' : ''}${cell && !cell.storesHeat ? ' glass' : ''}${goal ? ' goal' : ''}`;
       button.dataset.temperature = String(cell?.temperature ?? player?.temperature ?? 0); button.setAttribute('aria-pressed', String(this.selected?.x === x && this.selected.y === y));
       button.disabled = !!parent && (parent.x !== x || parent.y !== y);
-      button.textContent = player ? '••' : level.pistons?.some(p => p.baseKey === cellIndex) ? '⇥' : cell?.portal ? '↪' : cell?.fixed ? '⌖' : cell ? String(cellIndex) : goal ? '⬡' : '';
+      button.textContent = player ? '' : level.pistons?.some(p => p.baseKey === cellIndex) ? '⇥' : cell?.portal ? '↪' : cell?.fixed ? '⌖' : cell ? String(cellIndex) : goal ? '⬡' : '';
+      if (player) { button.classList.add('demon'); button.append(editorDemon(player.temperature)); }
       const edges = cell ? ['左', '下', '右', '上'].filter((_, d) => (cell.edges >> (d * 2) & 3) === 3).join('、') : '';
       button.setAttribute('aria-label', `格 ${x},${y}${cell ? ` · #${cellIndex} ${!cell.storesHeat ? '透明块' : '方块'} ${temperatureName(cell.temperature)}` : ''}${player ? ' · 麦妖' : ''}${goal ? ' · 终点' : ''}${edges ? ` · ${edges}粘边` : ''}`);
       button.title = button.getAttribute('aria-label')!;
@@ -161,12 +184,13 @@ export class LevelEditor {
   }
   private inspect(): void {
     const objects = this.el<HTMLSelectElement>('editor-object'); objects.replaceChildren(option('', '未选择'));
-    if (!this.selected) return;
+    if (!this.selected) { this.selectedObject = ''; this.el<HTMLButtonElement>('editor-apply').disabled = true; return; }
     const { x, y } = this.selected, cells = this.draft.cells, players = this.draft.players;
     cells.forEach((c, i) => { if (c.x === x && c.y === y && c.container === this.layer) objects.append(option(`c${i}`, `方块 #${i}`)); });
     players.forEach((p, i) => { if (p.x === x && p.y === y && p.container === this.layer) objects.append(option(`p${i}`, `麦妖 ${i + 1}`)); });
     if (!Array.from(objects.options).some(o => o.value === this.selectedObject) || !this.selectedObject) this.selectedObject = objects.options[1]?.value ?? '';
     objects.value = this.selectedObject;
+    this.el<HTMLButtonElement>('editor-apply').disabled = !this.selectedObject;
     this.el('editor-selection').textContent = `选中 ${x},${y}${this.layer === undefined ? ' · 地面' : ` · 活塞 #${this.layer} 内部`}`;
     this.readProperties();
   }
@@ -174,10 +198,17 @@ export class LevelEditor {
     const index = Number(this.selectedObject.slice(1));
     if (this.selectedObject.startsWith('p')) { this.el<HTMLSelectElement>('editor-temperature').value = String(this.draft.players[index].temperature ?? 0); return; }
     const cell = this.selectedObject.startsWith('c') ? this.draft.cells[index] : undefined; if (!cell) return;
-    this.el<HTMLSelectElement>('editor-temperature').value = String(cell.temperature); this.el<HTMLInputElement>('editor-capacity').value = String(cell.heatCapacity ?? 1);
-    this.el<HTMLInputElement>('editor-fixed').checked = cell.fixed; this.el<HTMLInputElement>('editor-glass').checked = !cell.storesHeat;
-    for (let d = 0; d < 4; d++) this.el<HTMLSelectElement>(`editor-edge-${d}`).value = String(cell.edges >> (d * 2) & 3);
     const piston = this.draft.pistons?.find(p => p.baseKey === index);
+    const phase = this.el<HTMLSelectElement>('editor-property-phase');
+    phase.options[1].disabled = !cell.portal; phase.options[2].disabled = !piston;
+    if (phase.selectedOptions[0]?.disabled) phase.value = 'before';
+    const properties = phase.value === 'after' ? cell.portal!.after : phase.value === 'head' ? piston!.head : cell.portal?.before ?? cell;
+    this.el<HTMLInputElement>('editor-is-piston').checked = !!piston; this.el<HTMLInputElement>('editor-is-portal').checked = !!cell.portal;
+    this.el<HTMLButtonElement>('editor-copy-before').disabled = !cell.portal;
+    this.el('editor-property-caption').textContent = `${phase.value === 'after' ? '目标关卡完成后' : phase.value === 'head' ? '活塞伸出部分' : '初始方块'} · #${index}`;
+    this.el<HTMLSelectElement>('editor-temperature').value = String(properties.temperature); this.el<HTMLInputElement>('editor-capacity').value = String(properties.heatCapacity ?? 1);
+    this.el<HTMLInputElement>('editor-fixed').checked = properties.fixed; this.el<HTMLInputElement>('editor-glass').checked = !properties.storesHeat;
+    for (let d = 0; d < 4; d++) this.el<HTMLSelectElement>(`editor-edge-${d}`).value = String(properties.edges >> (d * 2) & 3);
     if (piston) { this.el<HTMLSelectElement>('editor-direction').value = String(piston.direction); this.el<HTMLInputElement>('editor-expanded').checked = piston.expanded; this.el<HTMLInputElement>('editor-order').value = String(piston.order); }
     if (cell.portal) { this.el<HTMLSelectElement>('editor-target').value = cell.portal.target; this.el<HTMLInputElement>('editor-shortcut').checked = cell.portal.shortcut; }
   }
@@ -219,7 +250,7 @@ export class LevelEditor {
     const errors = validateLevel(this.draft); this.el('editor-errors').textContent = errors.join('\n');
     if (errors.length && !this.playing) return;
     const level = shownLevel ?? this.simulation?.level ?? this.draft;
-    const state = shown ?? this.simulation?.session.current ?? new Simulation(this.data, level).session.current;
+    const state = shown ?? this.simulation?.session.current ?? new Simulation(this.data, level, undefined, this.project.progress).session.current;
     this.scene.setDiscoveredLevels(this.discoveredLevels);
     if (snap) this.scene.load(level, state, levelLabels(this.data.levels), this.shownId === level.id); else this.scene.update(state, false, 'walking');
     this.shownId = level.id;
@@ -234,9 +265,9 @@ export class LevelEditor {
     this.el<HTMLTextAreaElement>('editor-state').value = JSON.stringify(observableState(state), null, 2);
     this.controls();
   }
-  private startPlay(checks = this.checks()): void {
-    const errors = validateLevel(this.draft); if (errors.length) throw new Error(errors.join('\n'));
-    this.stop(); this.playing = true; this.runStartId = this.draft.id; this.simulation = new Simulation(this.data, this.draft); this.rows = []; this.currentStep = 0; this.preview(true); this.renderTimeline();
+  private startPlay(checks = this.checks(), level = this.draft, progress = this.project.progress ?? {}): void {
+    parseProject(JSON.stringify(this.project));
+    this.stop(); this.playing = true; this.runStartId = level.id; this.runProgress = structuredClone(progress); this.simulation = new Simulation(this.data, level, undefined, this.runProgress); this.rows = []; this.currentStep = 0; this.preview(true); this.renderTimeline();
     this.initialChecks = checkState(this.simulation.session.current, checks, 0); this.reportCurrent();
   }
   command(command: Command, target?: string, record = true): void {
@@ -263,7 +294,7 @@ export class LevelEditor {
   private scenario(): Scenario {
     const actions = this.value('editor-actions'), commands = parseCommands(actions), checks = this.checks(); validateChecks(checks, commands.length);
     const selected = this.value('editor-case'), source = selected === '' ? undefined : this.project.scenarios[Number(selected)]?.source;
-    return { name: this.value('editor-case-name').trim() || '新测试', levelId: this.draft.id, actions, checks, ...(source ? { source } : {}) };
+    return { name: this.value('editor-case-name').trim() || '新测试', levelId: this.draft.id, actions, checks, progress: structuredClone(this.project.progress ?? {}), ...(source ? { source } : {}) };
   }
   private async run(all = false): Promise<void> {
     const scenarios = all ? structuredClone(this.project.scenarios) : [this.scenario()];
@@ -273,7 +304,7 @@ export class LevelEditor {
     for (const scenario of scenarios) {
       if (token !== this.generation) return;
       const level = this.data.levels.find(l => l.id === scenario.levelId); if (!level) continue;
-      this.runStartId = level.id; this.simulation = new Simulation(this.data, level); this.rows = []; this.currentStep = 0; this.preview(true);
+      this.runStartId = level.id; this.runProgress = structuredClone(scenario.progress ?? {}); this.simulation = new Simulation(this.data, level, undefined, this.runProgress); this.rows = []; this.currentStep = 0; this.preview(true);
       const results = checkState(this.simulation.session.current, scenario.checks, 0);
       this.initialChecks = [...results];
       for (const { command, target } of parseOperations(scenario.actions)) {
@@ -303,13 +334,13 @@ export class LevelEditor {
     }
   }
   private seek(step: number): void {
-    this.stop(); this.playing = true; this.simulation = new Simulation(this.data, this.data.levels.find(l => l.id === this.runStartId)!);
+    this.stop(); this.playing = true; this.simulation = new Simulation(this.data, this.data.levels.find(l => l.id === this.runStartId)!, undefined, this.runProgress);
     for (const row of this.rows.filter(r => r.step <= step)) this.simulation.apply(row.command, row.target);
     this.currentStep = step; this.preview(true); this.reportCurrent();
   }
   private loadCase(index: number): void {
     const scenario = this.project.scenarios[index]; if (!scenario) return;
-    this.project.currentId = scenario.levelId; this.switchToEdit(); this.el<HTMLSelectElement>('editor-case').value = String(index);
+    this.project.currentId = scenario.levelId; this.project.progress = structuredClone(scenario.progress ?? {}); this.switchToEdit(); this.el<HTMLSelectElement>('editor-case').value = String(index);
     this.el<HTMLInputElement>('editor-case-name').value = scenario.name; this.el<HTMLTextAreaElement>('editor-actions').value = scenario.actions; this.el<HTMLTextAreaElement>('editor-checks').value = JSON.stringify(scenario.checks, null, 2);
     const source = this.el<HTMLAnchorElement>('editor-source'); source.hidden = !scenario.source?.startsWith('https://'); if (!source.hidden) source.href = scenario.source!;
   }
@@ -320,8 +351,16 @@ export class LevelEditor {
   private bind(): void {
     const click = (id: string, action: () => void) => { this.el(id).onclick = () => this.guard(action); };
     click('editor-close', () => this.close()); click('editor-edit', () => this.switchToEdit()); click('editor-play', () => this.startPlay()); click('editor-restart', () => this.startPlay());
+    click('editor-preview-play', () => this.startPlay()); click('editor-preview-stop', () => this.switchToEdit());
+    click('editor-preview-restore', () => { const level = this.data.levels.find(l => l.id === this.runStartId) ?? this.draft; this.startPlay([], this.playing ? level : this.draft, this.playing ? this.runProgress : this.project.progress); });
+    click('editor-root-play', () => this.startPlay([], this.project.levels.find(l => l.id === this.project.rootId) ?? this.draft));
+    click('editor-child', () => { this.remember(); createChild(this.project, this.layer === undefined ? this.selected : undefined); this.switchToEdit(); });
+    this.el('editor-parent').onchange = () => this.guard(() => { this.remember(); setParent(this.project, this.draft.id, this.value('editor-parent') || undefined); this.refresh(); });
+    this.el('editor-root').onchange = () => this.guard(() => { this.remember(); this.project.rootId = this.value('editor-root') || undefined; this.persist(); });
+    this.el('editor-hint').onchange = () => this.guard(() => { this.remember(); this.draft.hintId = this.value('editor-hint') || undefined; this.persist(); });
+    click('editor-progress-apply', () => { const ids = (id: string) => [...new Set(this.value(id).split(/[\s,;]+/).filter(Boolean))]; const progress = { solved: ids('editor-solved'), visited: ids('editor-visited') }; for (const id of [...progress.solved, ...progress.visited]) if (!this.data.levels.some(l => l.id === id)) throw new Error(`初始进度中的关卡不存在：${id}`); this.remember(); this.project.progress = progress; this.switchToEdit(); });
     click('editor-new', () => { this.remember(); const level = blankLevel(`editor-${Date.now().toString(36)}`); this.copyLevel(level); this.switchToEdit(); });
-    click('editor-remove-room', () => { this.remember(); const id = this.draft.id; this.project.levels = this.project.levels.filter(l => l.id !== id); this.project.scenarios = this.project.scenarios.filter(s => s.levelId !== id); if (!this.project.levels.length) this.project.levels.push(blankLevel()); this.project.currentId = this.project.levels[0].id; this.switchToEdit(); });
+    click('editor-remove-room', () => { this.remember(); removeRoom(this.project, this.draft.id); this.switchToEdit(); });
     click('editor-copy', () => { this.remember(); this.copyLevel(this.base.levels.find(l => l.id === document.querySelector('#editor-button')!.getAttribute('data-origin'))!); this.switchToEdit(); });
     click('editor-load-native', () => { this.remember(); this.copyLevel(this.base.levels.find(l => l.id === this.value('editor-library'))!); this.switchToEdit(); });
     this.el('editor-room').onchange = () => { this.project.currentId = this.value('editor-room'); this.switchToEdit(); };
@@ -333,10 +372,30 @@ export class LevelEditor {
     const paint = (event: PointerEvent) => { const b = (event.target as HTMLElement).closest<HTMLButtonElement>('#editor-grid button'); if (!b || b.disabled) return; const key = `${b.dataset.x},${b.dataset.y}`; if (event.type === 'pointermove' && (event.buttons !== 1 || this.tool === 'select' || key === last)) return; last = key; this.guard(() => this.paint(Number(b.dataset.x), Number(b.dataset.y))); };
     this.el('editor-grid').addEventListener('pointerdown', paint); this.el('editor-grid').addEventListener('pointermove', paint);
     this.el('editor-object').onchange = () => { this.selectedObject = this.value('editor-object'); this.readProperties(); };
+    this.el('editor-property-phase').onchange = () => this.readProperties();
+    click('editor-copy-before', () => { const cell = this.draft.cells[Number(this.selectedObject.slice(1))]; if (!this.selectedObject.startsWith('c') || !cell?.portal) return; this.remember(); cell.portal.after = structuredClone(cell.portal.before); this.readProperties(); this.persist(); this.preview(true); });
     click('editor-apply', () => {
-      if (!this.selectedObject) return; this.remember(); const index = Number(this.selectedObject.slice(1));
+      if (!this.selectedObject) return;
+      const index = Number(this.selectedObject.slice(1));
+      if (this.selectedObject.startsWith('c') && !this.el<HTMLInputElement>('editor-is-piston').checked && this.draft.pistons?.some(p => p.baseKey === index) && (this.draft.cells.some(c => c.container === index) || this.draft.players.some(p => p.container === index))) throw new Error('先移除内部物品，再移除活塞。');
+      this.remember();
       if (this.selectedObject.startsWith('p')) this.draft.players[index].temperature = Number(this.value('editor-temperature')) as Temperature;
-      else { const cell = this.draft.cells[index]; Object.assign(cell, this.properties()); if (cell.portal) Object.assign(cell.portal, { target: this.value('editor-target'), shortcut: this.el<HTMLInputElement>('editor-shortcut').checked, before: { ...this.properties() } }); if (this.draft.pistons?.some(p => p.baseKey === index)) this.piston(index); }
+      else {
+        const cell = this.draft.cells[index], phase = this.value('editor-property-phase'), properties = this.properties();
+        const piston = this.draft.pistons?.find(p => p.baseKey === index);
+        if (phase === 'head' && piston) piston.head = properties;
+        else if (phase === 'after' && cell.portal) cell.portal.after = properties;
+        else { Object.assign(cell, properties); if (cell.portal) cell.portal.before = { ...properties }; }
+        if (this.el<HTMLInputElement>('editor-is-portal').checked) {
+          const { fixed, storesHeat, temperature, heatCapacity, edges } = cell;
+          cell.portal ??= { target: this.value('editor-target'), shortcut: false, before: { fixed, storesHeat, temperature, heatCapacity, edges }, after: { ...properties, fixed: false } };
+          Object.assign(cell.portal, { target: this.value('editor-target'), shortcut: this.el<HTMLInputElement>('editor-shortcut').checked });
+        } else delete cell.portal;
+        if (this.el<HTMLInputElement>('editor-is-piston').checked) this.piston(index);
+        else if (piston) {
+          this.draft.pistons = this.draft.pistons?.filter(p => p.baseKey !== index);
+        }
+      }
       this.renderGrid(); this.persist(); this.preview(true);
     });
     click('editor-edit-undo', () => { const previous = this.editHistory.pop(); if (previous) { this.project = previous; this.switchToEdit(); } });

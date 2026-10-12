@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { blankLevel, checkState, observableState, parseCommands, parseOperations, parseProject, projectDataset, removeCell, replayScenario, Simulation, validateLevel } from '../src/editor-model';
 import { addReferenceReplays, referenceReplays } from '../src/reference-replays';
 import { addMechanismPresets, editorPresets } from '../src/editor-presets';
+import { createChild, projectRooms, removeRoom, setParent } from '../src/editor-workspace';
 import type { Dataset, Level } from '../src/types';
 
 const project = editorPresets();
@@ -85,8 +86,39 @@ test('editor room overrides leave the source dataset unchanged', () => {
 test('adding mechanism fixtures preserves edited layouts and cases and is idempotent', () => {
   const draft = { ...structuredClone(project), levels: structuredClone(project.levels.slice(0, 4)), scenarios: structuredClone(project.scenarios.slice(0, 4)) };
   draft.levels[0].title = 'Edited'; draft.scenarios[0].actions = 'R4';
-  assert.equal(addMechanismPresets(draft), 3); assert.equal(addMechanismPresets(draft), 0);
+  assert.equal(addMechanismPresets(draft), project.scenarios.length - 4); assert.equal(addMechanismPresets(draft), 0);
   assert.equal(draft.levels[0].title, 'Edited'); assert.equal(draft.scenarios[0].actions, 'R4'); assert.doesNotThrow(() => parseProject(JSON.stringify(draft)));
+});
+
+test('nested authoring keeps hierarchy, entrances and export references consistent', () => {
+  const root = blankLevel('root'), draft = { version: 1 as const, levels: [root], currentId: root.id, scenarios: [] };
+  const child = createChild(draft, { x: 3, y: 4 });
+  const leaf = createChild(draft, { x: 3, y: 4 });
+  assert.equal(child.parentId, root.id); assert.equal(leaf.parentId, child.id);
+  assert.equal(root.cells[32].portal?.target, child.id); assert.equal(child.cells[32].portal?.target, leaf.id);
+  assert.deepEqual(projectRooms(draft).map(r => r.depth), [0, 1, 2]);
+  assert.throws(() => setParent(draft, root.id, leaf.id), /循环/);
+  assert.equal(root.parentId, undefined);
+  assert.doesNotThrow(() => parseProject(JSON.stringify(draft)));
+  removeRoom(draft, child.id);
+  assert.equal(root.cells[32].portal, undefined); assert.equal(leaf.parentId, undefined);
+  assert.deepEqual(projectRooms(draft).map(r => r.depth), [0, 0]);
+});
+
+test('initial progress round trips and a fresh simulation clears nested states and retained changes', () => {
+  const draft = structuredClone(project);
+  draft.rootId = 'editor-portal-hub'; draft.progress = { solved: ['editor-portal-leaf'], visited: ['editor-portal-leaf'] };
+  const imported = parseProject(JSON.stringify(draft)); assert.deepEqual(imported.progress, draft.progress);
+  const hub = imported.levels.find(l => l.id === imported.rootId)!;
+  const merged = projectDataset(data, imported), simulation = new Simulation(merged, hub, undefined, imported.progress);
+  assert.equal(simulation.apply('ENTER'), true);
+  assert.equal(simulation.apply('ENTER'), true); assert.equal(simulation.apply('R'), true); assert.equal(simulation.apply('EXIT'), true);
+  assert.equal(simulation.session.current.cells[32].temperature, 2);
+  const restored = new Simulation(merged, hub, undefined, imported.progress);
+  assert.equal(restored.session.current.levelId, hub.id); assert.equal(restored.session.current.moves, 0);
+  assert.equal(restored.session.states['editor-portal-child'], undefined);
+  assert.equal(restored.canUndo, false); assert.deepEqual(restored.session.solved, imported.progress!.solved);
+  assert.throws(() => parseProject(JSON.stringify({ ...draft, progress: { solved: 'room' } })), /数组/);
 });
 
 test('all imported rooms including dormant hints validate without changing native properties', { skip: !fs.existsSync('public/levels.local.json') }, () => {

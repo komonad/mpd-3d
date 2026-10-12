@@ -23,7 +23,17 @@ export function editorPresets(): EditorProject {
   nested.cells.push({ x: 4, y: 4, fixed: true, storesHeat: true, temperature: 0, edges: 0xaa },
     { x: 4, y: 4, container: 32, fixed: false, storesHeat: true, temperature: 0, edges: 0xaa });
   nested.pistons = [32, 33].map((baseKey, order) => ({ model: 'boundary', baseKey, headKey: -10000 - baseKey, direction: 2, expanded: false, order, head: { ...head } }));
-  return { version: 1, levels: [glass, piston, retained, transient, priority, advance, nested], currentId: glass.id, scenarios: [
+  const hub = blankLevel('editor-portal-hub'); hub.title = '嵌套关卡与入口变化'; hub.players = [{ x: 2, y: 4 }];
+  const child = blankLevel('editor-portal-child'); child.title = '中间关卡'; child.parentId = hub.id; child.players = [{ x: 2, y: 4 }];
+  const leaf = blankLevel('editor-portal-leaf'); leaf.title = '内部关卡'; leaf.parentId = child.id; leaf.players = [{ x: 2, y: 4 }]; leaf.goals = [{ x: 4, y: 4 }]; leaf.cells.push({ x: 3, y: 4, ...head, edges: 0x55 });
+  const hint = blankLevel('editor-portal-hint'); hint.title = '独立提示场景'; hint.category = 'hint'; child.hintId = hint.id;
+  const before = { ...head, fixed: true, edges: 0xaa };
+  hub.cells.push({ x: 3, y: 4, ...before, portal: { target: child.id, shortcut: false, before: { ...before }, after: { ...head, temperature: 2, edges: 0xff } } },
+    { x: 5, y: 4, ...before, portal: { target: leaf.id, shortcut: true, before: { ...before }, after: { ...head, storesHeat: false, heatCapacity: 0, temperature: -1, edges: 0xaa } } },
+    { x: 5, y: 6, ...before, portal: { target: leaf.id, shortcut: true, before: { ...before }, after: { ...head, fixed: true, temperature: 1, edges: 0x55, heatCapacity: 3 } } });
+  child.cells.push({ x: 3, y: 4, ...before, portal: { target: leaf.id, shortcut: false, before: { ...before }, after: { ...head, temperature: 2, edges: 0xaa } } });
+  const shortcut = structuredClone(hub); shortcut.id = 'editor-portal-shortcut'; shortcut.title = '副入口解锁'; shortcut.players = [{ x: 4, y: 4 }];
+  return { version: 1, levels: [glass, piston, retained, transient, priority, advance, nested, ...structuredClone(laboratory), hub, child, leaf, hint, shortcut], currentId: glass.id, scenarios: [
     { name: '透明粘边连接与整体推动', levelId: glass.id, actions: 'R D R U', checks: [
       { step: 1, path: 'cells.32.x', equals: 4 }, { step: 4, path: 'cells.32.y', equals: 3 }, { step: 4, path: 'cells.33.y', equals: 3 }, { step: 4, path: 'accepted', equals: true },
     ] },
@@ -45,6 +55,20 @@ export function editorPresets(): EditorProject {
       { step: 1, path: 'players.0.container', equals: 33 }, { step: 2, path: 'accepted', equals: false }, { step: 3, path: 'accepted', equals: false },
       { step: 4, path: 'players.0.x', equals: 5 }, { step: 4, path: 'players.0.container', equals: null }, { step: 4, path: 'pushes', equals: 0 },
     ] },
+    { name: '材质场景：连接与不储热', levelId: 'lab-01', actions: '', checks: [{ step: 0, path: 'cells.6.storesHeat', equals: false }, { step: 0, path: 'bodies.0', equals: [0, 1, 2] }] },
+    { name: '麦妖传热：冷热平衡', levelId: 'lab-02', actions: 'D', checks: [{ step: 1, path: 'players.0.temperature', equals: 0 }, { step: 1, path: 'cells.0.temperature', equals: 0 }, { step: 1, path: 'cells.1.temperature', equals: 0 }] },
+    { name: '异质透明粘边连接', levelId: 'lab-03', actions: 'R', checks: [{ step: 1, path: 'cells.0.x', equals: 4 }, { step: 1, path: 'bodies.0', equals: [0, 1] }] },
+    { name: '热量驱动固定活塞', levelId: 'lab-04', actions: 'R', checks: [{ step: 1, path: 'cells.0.temperature', equals: 1 }, { step: 1, path: 'pistons.0.expanded', equals: true }] },
+    { name: '假死恢复场景', levelId: 'lab-05', actions: 'L', checks: [{ step: 1, path: 'frozen', equals: false }, { step: 1, path: 'players.0.temperature', equals: 0 }] },
+    { name: '假死与关卡重置', levelId: 'lab-06', actions: 'R2 RESET', checks: [{ step: 2, path: 'frozen', equals: true }, { step: 2, path: 'players.0.temperature', equals: 1 }, { step: 3, path: 'frozen', equals: false }, { step: 3, path: 'players.0.x', equals: 5 }] },
+    { name: '多控：假死个体停止移动', levelId: 'lab-07', actions: 'U2', checks: [{ step: 2, path: 'players.0.y', equals: 4 }, { step: 2, path: 'players.1.y', equals: 5 }, { step: 2, path: 'players.1.temperature', equals: 1 }] },
+    { name: '第4温度场景重置保留', levelId: 'lab-08', actions: 'U2 RESET', checks: [{ step: 3, path: 'cells.0.y', equals: 2 }, { step: 3, path: 'cells.0.temperature', equals: 2 }] },
+    { name: '嵌套入口：通关、变化与逐层退出', levelId: hub.id, actions: 'E E R Q Q', checks: [{ step: 1, path: 'levelId', equals: child.id }, { step: 2, path: 'levelId', equals: leaf.id }, { step: 3, path: 'solved', equals: true }, { step: 4, path: 'levelId', equals: child.id }, { step: 4, path: 'cells.32.temperature', equals: 2 }, { step: 4, path: 'cells.32.fixed', equals: false }, { step: 5, path: 'levelId', equals: hub.id }] },
+    { name: '入口完成前的固定与隔热', levelId: hub.id, actions: '', checks: [{ step: 0, path: 'cells.32.fixed', equals: true }, { step: 0, path: 'cells.32.temperature', equals: 0 }, { step: 0, path: 'cells.32.edges', equals: 0xaa }] },
+    { name: '入口完成后的绿色、透明与热固定块', levelId: hub.id, progress: { solved: [child.id, leaf.id], visited: [leaf.id] }, actions: '', checks: [{ step: 0, path: 'cells.32.fixed', equals: false }, { step: 0, path: 'cells.32.temperature', equals: 2 }, { step: 0, path: 'cells.33.storesHeat', equals: false }, { step: 0, path: 'cells.33.temperature', equals: -1 }, { step: 0, path: 'cells.34.fixed', equals: true }, { step: 0, path: 'cells.34.temperature', equals: 1 }, { step: 0, path: 'cells.34.heatCapacity', equals: 3 }] },
+    { name: '未抵达的副入口不能进入', levelId: shortcut.id, actions: `E(${leaf.id})`, checks: [{ step: 1, path: 'accepted', equals: false }, { step: 1, path: 'levelId', equals: shortcut.id }] },
+    { name: '抵达后副入口沿主层级退出', levelId: shortcut.id, progress: { visited: [leaf.id] }, actions: `E(${leaf.id}) Q Q`, checks: [{ step: 1, path: 'levelId', equals: leaf.id }, { step: 2, path: 'levelId', equals: child.id }, { step: 3, path: 'levelId', equals: hub.id }] },
+    { name: '嵌套关卡进入提示与返回', levelId: hub.id, actions: 'E H Q Q', checks: [{ step: 2, path: 'levelId', equals: hint.id }, { step: 2, path: 'players.0.temperature', equals: 0 }, { step: 3, path: 'levelId', equals: child.id }, { step: 4, path: 'levelId', equals: hub.id }] },
   ] };
 }
 

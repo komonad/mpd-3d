@@ -5,7 +5,6 @@ import { installLocalImport, readLocalLevels } from './local-levels';
 import { GameScene } from './scene';
 import { LevelEditor } from './editor';
 import { SolutionPanel } from './solution-panel';
-import { laboratory } from './laboratory';
 import { cloneState, exposeOpenWelds, initialState, move, syncExteriorTemperature } from './engine';
 import { inspectCell } from './inspection';
 import { compareLevels, levelIdentifier, levelLabels } from './level-labels';
@@ -51,7 +50,7 @@ app.innerHTML = `
       <button class="world-button" id="world-button"><span>${icon('map')}探索世界地图</span>${icon('arrow')}</button>
       <button class="hub-button" id="hub-button">大世界 ${icon('up')}</button>
       <div class="progress-label"><span>探索进度</span><b id="progress-number">0 / 27</b></div><div class="progress-track"><i id="progress-fill"></i></div>
-      <div class="level-tabs" role="tablist" aria-label="关卡分类"><button id="main-tab" role="tab" aria-selected="true">主线 <small>20</small></button><button id="extra-tab" role="tab" aria-selected="false">额外 <small>7</small></button><button id="lab-tab" role="tab" aria-selected="false">实验室 <small>8</small></button></div>
+      <div class="level-tabs" role="tablist" aria-label="关卡分类"><button id="main-tab" role="tab" aria-selected="true">主线 <small>20</small></button><button id="extra-tab" role="tab" aria-selected="false">额外 <small>7</small></button></div>
       <div id="level-list" class="level-list" role="tabpanel"></div>
       <div class="sidebar-bottom"><span class="save-dot"></span><span id="save-status">进度自动保存在本机</span><span class="small-star">✦</span></div>
     </aside>
@@ -89,7 +88,7 @@ let solutionPanel: SolutionPanel;
 let replayBackup: { session: Session; undo: Snapshot[]; redo: Snapshot[]; world: string; category: typeof category } | undefined;
 let session: Session, solved = new Set<string>(), undoHistory: Snapshot[] = [], redoHistory: Snapshot[] = [];
 let selectedWorld: string;
-let category: 'main' | 'extra' | 'lab' = 'main';
+let category: 'main' | 'extra' = 'main';
 let preferences: Preferences = { tilt: 32, light: 1.05, quality: true, grid: false, sound: true, freeView: false };
 let levelsById: Map<string, Level>, labels: Map<string, string>;
 let toastTimer: ReturnType<typeof setTimeout>, audio: AudioContext | undefined;
@@ -132,14 +131,14 @@ function renderLevels(): void {
   const signature = JSON.stringify([selectedWorld, category, level.id, [...solved]]);
   if (signature === sidebarSignature) return; sidebarSignature = signature;
   const world = currentWorld(), available = new Set(unlockedWorlds(data, solved).map(w => w.id));
-  const list = data.levels.filter(l => l.category === category && (category === 'lab' || (l.worldId ?? data.world) === selectedWorld))
+  const list = data.levels.filter(l => l.category === category && (l.worldId ?? data.world) === selectedWorld)
     .sort(compareLevels);
   $('#world-picker').innerHTML = (data.worlds ?? [world]).map(w => `<option value="${w.id}" ${w.id === selectedWorld ? 'selected' : ''} ${available.has(w.id) ? '' : 'disabled'}>${w.index === 0 ? '大世界' : `世界 ${w.index} · ${w.title}`}${w.supported ? available.has(w.id) ? '' : ' · 未解锁' : ' · 尚未开放'}</option>`).join('');
   $('#chapter-eyebrow').textContent = world.index === 0 ? 'OVERWORLD' : `WORLD ${String(world.index).padStart(2, '0')}`;
   $('#hub-button').hidden = !data.hub || selectedWorld === data.hub;
   $('#header-world').textContent = world.title;
   $('#world-title').textContent = world.title; const subtitle = document.createElement('span'); subtitle.textContent = world.description; $('#world-title').append(subtitle);
-  for (const key of ['main', 'extra', 'lab'] as const) $(`#${key}-tab small`).textContent = String(data.levels.filter(l => l.category === key && (key === 'lab' || (l.worldId ?? data.world) === selectedWorld)).length);
+  for (const key of ['main', 'extra'] as const) $(`#${key}-tab small`).textContent = String(data.levels.filter(l => l.category === key && (l.worldId ?? data.world) === selectedWorld).length);
   $('#level-list').innerHTML = list.map(l => {
     const done = solved.has(l.id), selected = l.id === level.id;
     const identifier = levelIdentifier(l), number = identifier.includes(':') ? identifier.slice(identifier.indexOf('-') + 1) : l.localName ?? l.label.split('-').at(-1);
@@ -147,7 +146,6 @@ function renderLevels(): void {
     return `<button class="level-item ${selected ? 'selected' : ''} ${done ? 'completed' : ''}" data-level="${l.id}" aria-current="${selected ? 'true' : 'false'}"><span class="level-number">${done ? icon('check') : number}</span><span class="level-text"><b>${levelName(l)}</b><small>${identifier} ${done ? '· 已完成' : '· ' + l.width + ' × ' + l.height}</small></span><span class="level-thermals">${hot ? '<i class="hot"></i>' : ''}${cold ? '<i class="cold"></i>' : ''}</span>${selected ? icon('chevron') : ''}</button>`;
   }).join('');
   $('#main-tab').setAttribute('aria-selected', String(category === 'main')); $('#extra-tab').setAttribute('aria-selected', String(category === 'extra'));
-  $('#lab-tab').setAttribute('aria-selected', String(category === 'lab'));
   const puzzles = data.levels.filter(l => (l.worldId ?? data.world) === selectedWorld && (l.category === 'main' || l.category === 'extra'));
   const count = puzzles.filter(l => solved.has(l.id)).length;
   $('#progress-number').textContent = `${count} / ${puzzles.length}`; $('#progress-fill').style.width = `${count / Math.max(1, puzzles.length) * 100}%`;
@@ -179,7 +177,7 @@ function load(id: string, outside: Temperature = 0, existing?: State, preserveCa
   syncExteriorTemperature(level, state);
   recordState(session, state, level); solved = new Set(session.solved);
   if (level.worldId) selectedWorld = level.worldId;
-  if (level.category === 'extra') category = 'extra'; else if (level.category === 'main' || level.category === 'world') category = 'main'; else if (level.category === 'lab') category = 'lab';
+  if (level.category === 'extra') category = 'extra'; else if (level.category === 'main' || level.category === 'world') category = 'main';
   scene.setDiscoveredLevels(session.visited); scene.load(level, state, levelLabels(data.levels), preserveCamera); display(true); $('#hover-info').hidden = true;
   document.body.classList.remove('sidebar-open');
 }
@@ -279,7 +277,7 @@ async function showExit(next: Session): Promise<void> {
   resolving = false; renderHud(); flushInput();
 }
 function nextLevel(): void {
-  const main = data.levels.filter(l => l.category === category && (category === 'lab' || l.worldId === selectedWorld)).sort(compareLevels), index = main.findIndex(l => l.id === level.id);
+  const main = data.levels.filter(l => l.category === category && l.worldId === selectedWorld).sort(compareLevels), index = main.findIndex(l => l.id === level.id);
   selectLevel(main[index + 1]?.id ?? selectedWorld);
 }
 function openHint(): void {
@@ -359,7 +357,6 @@ function bind(): void {
   $('#solutions-button').onclick = () => { if (editor.active) editor.close(); solutionPanel.open(level.id); };
   $('#level-list').addEventListener('click', e => { const button = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-level]'); if (button) selectLevel(button.dataset.level!); });
   $('#main-tab').onclick = () => { category = 'main'; renderLevels(); }; $('#extra-tab').onclick = () => { category = 'extra'; renderLevels(); };
-  $('#lab-tab').onclick = () => { category = 'lab'; renderLevels(); };
   $('#world-button').onclick = $('#breadcrumb-world').onclick = () => { if (!editor.active) selectLevel(selectedWorld); };
   $('#world-picker').onchange = () => selectLevel($<HTMLSelectElement>('#world-picker').value);
   $('#hub-button').onclick = () => { if (data.hub) selectLevel(data.hub); };
@@ -420,7 +417,7 @@ function bind(): void {
   };
   scene.onNoteClick = text => { $('#hint-text').textContent = text; $('#start-hint-button').toggleAttribute('disabled', editor.active || !level.hintId); $<HTMLDialogElement>('#hint-dialog').showModal(); };
   scene.onHover = (key, shown) => {
-    const info = $('#hover-info'), model = key === null || !shown ? undefined : inspectCell(shown, key, labels, new Set(editor.active ? editor.discoveredLevels : session.visited));
+    const info = $('#hover-info'), model = key === null || !shown ? undefined : inspectCell(shown, key, editor.active ? editor.labels : labels, new Set(editor.active ? editor.discoveredLevels : session.visited));
     if (!model) { info.hidden = true; return; }
     info.hidden = false; info.replaceChildren();
     const heading = document.createElement('strong'); heading.textContent = model.title; info.append(heading);
@@ -453,7 +450,7 @@ async function start(): Promise<void> {
     }
     storageKey = data.edition === 'preview' ? 'maxwell3d-save-preview-v2' : 'maxwell3d-save-v2';
     localImport.update(data, !!local);
-    data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
+    levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
     solutionPanel = new SolutionPanel(data, {
       begin: () => {
@@ -476,7 +473,16 @@ async function start(): Promise<void> {
     applyPreferences();
     selectedWorld = data.world;
     let saved: Snapshot | undefined;
-    try { const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null'); if (value && levelsById.has(value.current?.levelId) && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) saved = value; } catch { /* Invalid saved data starts a new session. */ }
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null');
+      if (value && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) {
+        if (levelsById.has(value.current.levelId)) saved = value;
+        else if (/^lab-\d+$/.test(value.current.levelId)) {
+          const initial = startSession(data);
+          saved = createSession(levelsById.get(initial.current.levelId)!, value.solved.filter((id: string) => levelsById.has(id)), (value.visited ?? []).filter((id: string) => levelsById.has(id)));
+        }
+      }
+    } catch { /* Invalid saved data starts a new session. */ }
     if (saved && data.edition === 'preview') {
       const hub = levelsById.get(data.hub!)!;
       const cells = initialState(hub, new Set(saved.solved)).cells;
