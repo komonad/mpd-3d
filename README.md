@@ -1,4 +1,4 @@
-# Maxwell · 3D — 非官方项目 / Unofficial project
+# MPD · 3D
 
 > [!IMPORTANT]
 > **原作来源、权利归属与下架承诺 / Original work, rights, and removal policy**

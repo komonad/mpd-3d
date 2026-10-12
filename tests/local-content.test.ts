@@ -5,6 +5,8 @@ import test from 'node:test';
 import { importLevelDataset } from '../scripts/level-dataset.mjs';
 import { publicDataset, publicSolutions } from '../scripts/public-content.mjs';
 import { startSession } from '../src/session';
+import { bodies, initialState } from '../src/engine';
+import { bodySurfaceGeometries, blockHeight, exteriorHalfExtent, fixedAnchorPoints } from '../src/body-geometry';
 import { SolutionReplay, type SavedSolution } from '../src/solutions';
 import type { Dataset } from '../src/types';
 
@@ -22,6 +24,20 @@ test('public catalogue contains only worlds 1–2 and an independent entrance', 
     for (const cell of level.cells) if (cell.portal) assert.ok(ids.has(cell.portal.target));
   }
   assert.equal(source.edition, undefined);
+});
+test('preview border forms an opaque exterior plain with only inner anchors', { skip: !available }, () => {
+  const hub = publicDataset(source).levels[0];
+  const state = initialState(hub);
+  const border = state.cells.filter(cell => cell.x === 0 || cell.y === 0 || cell.x === hub.width - 1 || cell.y === hub.height - 1);
+  const groups = bodies(border);
+  assert.equal(groups.length, 1);
+  assert.ok(border.every(cell => cell.fixed && cell.storesHeat));
+  const surfaces = bodySurfaceGeometries(groups[0], blockHeight, hub);
+  assert.ok(surfaces.solid); assert.equal(surfaces.glass, undefined);
+  surfaces.solid.computeBoundingBox();
+  assert.ok(surfaces.solid.boundingBox!.max.x > exteriorHalfExtent - 1);
+  assert.equal(fixedAnchorPoints(groups[0], hub).length, 4);
+  surfaces.solid.dispose();
 });
 test('public solutions contain no embedded room snapshots and replay within the public catalogue', { skip: !available }, () => {
   const data = publicDataset(source);

@@ -7,7 +7,14 @@ export function publicDataset(source) {
   const hubId = 'preview-hub';
   const wall = { fixed: true, storesHeat: false, temperature: 0, edges: 0xaa };
   const cells = [];
-  for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) if (x === 0 || y === 0 || x === 8 || y === 8) cells.push({ x, y, ...wall });
+  const border = (x, y) => x === 0 || y === 0 || x === 8 || y === 8;
+  for (let y = 0; y < 9; y++) for (let x = 0; x < 9; x++) if (border(x, y)) {
+    const edges = [[-1, 0], [0, 1], [1, 0], [0, -1]].reduce((bits, [dx, dy], direction) => {
+      const nx = x + dx, ny = y + dy;
+      return bits | (nx > 0 && nx < 8 && ny > 0 && ny < 8 ? 2 << (direction * 2) : 0);
+    }, 0);
+    cells.push({ x, y, fixed: true, storesHeat: true, temperature: 0, edges });
+  }
   worlds.forEach((world, index) => cells.push({ x: 3 + index * 2, y: 3, ...wall, portal: { target: world.id, shortcut: false, before: { ...wall }, after: { ...wall } } }));
   for (const level of levels) {
     if (worldIds.has(level.id)) level.parentId = hubId;

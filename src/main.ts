@@ -37,7 +37,7 @@ app.innerHTML = `
   </aside>
   <header class="app-header">
     <button class="icon-button mobile-menu" id="menu-button" aria-label="显示关卡列表">${icon('menu')}</button>
-    <a class="brand" href="#" aria-label="Maxwell 3D 首页"><span class="brand-mark"><img src="${demonIcon}" alt="" width="512" height="512" /></span><span>MAXWELL’S<small>PUZZLING DEMON</small></span><em>3D</em></a>
+    <a class="brand" href="#" aria-label="MPD 3D 首页"><span class="brand-mark"><img src="${demonIcon}" alt="" width="512" height="512" /></span><span>MPD<small>PUZZLING DEMON</small></span><em>3D</em></a>
     <div class="header-center"><span class="status-dot"></span> A STUDY IN TEMPERATURE <span class="header-line"></span><span id="header-world">温度的世界</span></div>
     <div class="header-actions"><button class="icon-button" id="sound-button" aria-label="关闭音效" title="音效">${icon('sound')}</button><button class="icon-button" id="help-button" aria-label="玩法说明" title="玩法说明">${icon('help')}</button><button class="icon-button" id="settings-button" aria-label="画面设置" title="画面设置">${icon('settings')}</button><button id="solutions-button">解法回放</button><button id="editor-button">关卡编辑器</button></div>
   </header>
@@ -464,6 +464,13 @@ async function start(): Promise<void> {
     selectedWorld = data.world;
     let saved: Snapshot | undefined;
     try { const value = JSON.parse(localStorage.getItem(storageKey) ?? 'null'); if (value && levelsById.has(value.current?.levelId) && Array.isArray(value.solved) && value.baselines && value.states && Array.isArray(value.current?.cells)) saved = value; } catch { /* Invalid saved data starts a new session. */ }
+    if (saved && data.edition === 'preview') {
+      const hub = levelsById.get(data.hub!)!;
+      const cells = initialState(hub, new Set(saved.solved)).cells;
+      for (const room of [saved.current, saved.states[hub.id], saved.baselines[hub.id]]) {
+        if (room?.levelId === hub.id) room.cells = structuredClone(cells);
+      }
+    }
     if (saved) { session = completeHierarchy(data, saved); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current); }
     else {
       session = startSession(data);
