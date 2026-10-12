@@ -112,7 +112,7 @@ export function bodyLayerGeometry(cells: Cell[], height: number, exterior?: { wi
     if (!neighbor || cell.container !== neighbor.container) continue;
     const opposite = (direction + 2) % 4;
     const a = edgeAt(cell, direction), b = edgeAt(neighbor, opposite);
-    const adhesive = (a === 3 || b === 3) && (!cell.storesHeat || !neighbor.storesHeat || a === 2 || b === 2);
+    const adhesive = (a === 3 || b === 3) && (cell.storesHeat !== neighbor.storesHeat || cell.storesHeat && (a === 2 || b === 2));
     if (!adhesive && a !== 2 && b !== 2) continue;
     const owner = a === 3 ? cell : neighbor;
     const coatings = adhesive ? [{ kind: 3, owner, side: owner === cell ? 1 : -1 }] : [];

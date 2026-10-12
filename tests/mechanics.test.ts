@@ -96,8 +96,6 @@ test('joined adhesive faces retain a single checker layer with the sticky cell t
     [[cell(4, 0, 0, 0, 0x5d), cell(5, 0, 1, 0, 0x55, false)], 4],
     [[cell(4, 0, 0, -1, 0x75, false), cell(5, 1, 0)], 4],
     [[cell(4, 0, 0, 0, 0x55), cell(5, 1, 0, 1, 0x57, false)], 5],
-    [[cell(4, 0, 0, 0, 0x75, false), cell(5, 1, 0, 0, 0x55, false)], 4],
-    [[cell(4, 0, 0, 0, 0x55, false), cell(5, 1, 0, -1, 0x57, false)], 5],
   ] as [Cell[], number][]) {
     const geometry = bodyLayerGeometry(cells, 0.96), positions = geometry.getAttribute('position'), owners = geometry.getAttribute('ownerKey'), uv = geometry.getAttribute('uv');
     const indices = Array.from({ length: positions.count }, (_, i) => i).filter(i => owners.getX(i) === owner);
@@ -115,7 +113,7 @@ test('joined adhesive faces retain a single checker layer with the sticky cell t
     geometry.dispose(); material.dispose();
   }
 });
-test('joined insulation remains opaque on both sides beside an adhesive layer', () => {
+test('joined insulation remains opaque on both sides with material-dependent adhesive layers', () => {
   for (const cells of [
     [cell(0, 0, 0, 0, 0x75, false), cell(1, 1, 0, 0, 0x56, false)],
     [cell(0, 0, 0, 0, 0x56, false), cell(1, -1, 0, 0, 0x75)],
@@ -133,10 +131,37 @@ test('joined insulation remains opaque on both sides beside an adhesive layer', 
     const midpoint = new Vector3((sticky.x + insulated.x) / 2 - cells[0].x, 3, (sticky.y + insulated.y) / 2 - cells[0].y);
     for (const [side, material] of [[-1, 0], [1, 1]]) {
       const hits = new Raycaster(midpoint.clone().addScaledVector(toward, side * 0.045), new Vector3(0, -1, 0)).intersectObject(mesh);
-      assert.equal(hits.length, 1); assert.equal(hits[0].face!.materialIndex, material);
+      if (material === 1 && !sticky.storesHeat && !insulated.storesHeat) assert.equal(hits.length, 0);
+      else { assert.equal(hits.length, 1); assert.equal(hits[0].face!.materialIndex, material); }
     }
     geometry.dispose(); insulation.dispose(); adhesive.dispose();
   }
+});
+
+test('joined transparent adhesive faces merge without interior checker surfaces in every direction', () => {
+  for (const [dx, dy, face, opposite] of [[-1, 0, 0, 2], [0, 1, 1, 3], [1, 0, 2, 0], [0, -1, 3, 1]]) {
+    for (const [a, b] of [[3, 1], [1, 3], [3, 3], [3, 0], [0, 3]]) for (const reverse of [false, true]) {
+      const cells = [cell(0, 3, 3, 1, (0x55 & ~(3 << (face * 2))) | a << (face * 2), false),
+        cell(1, 3 + dx, 3 + dy, -1, (0x55 & ~(3 << (opposite * 2))) | b << (opposite * 2), false)];
+      if (reverse) cells.reverse();
+      assert.equal(bodies(cells).length, 1);
+      const geometry = bodyLayerGeometry(cells, 0.96);
+      assert.equal(geometry.getAttribute('position').count, 0);
+      geometry.dispose();
+    }
+  }
+});
+
+test('pushed transparent adhesion retains one body and one exterior rim', () => {
+  const room = level([cell(0, 3, 4, 0, 0x75, false), cell(1, 5, 4, 0, 0x55, false)]); room.players = [{ x: 2, y: 4 }];
+  const state = move(room, initialState(room), 2)!, joined = bodies(state.cells);
+  assert.equal(joined.length, 1); assert.deepEqual(joined[0].map(c => c.key), [0, 1]);
+  const coating = bodyLayerGeometry(joined[0], 0.96), rim = glassRimGeometry(joined[0], 0.96);
+  assert.equal(coating.getAttribute('position').count, 0);
+  const material = new MeshBasicMaterial(), mesh = new Mesh(rim, material); mesh.updateMatrixWorld();
+  assert.equal(new Raycaster(new Vector3(0.5, 3, 0), new Vector3(0, -1, 0)).intersectObject(mesh).length, 0);
+  const pushed = move(room, state, 2)!; assert.deepEqual(pushed.cells.map(c => c.x), [5, 6]);
+  coating.dispose(); rim.dispose(); material.dispose();
 });
 
 test('joined checker and insulation bands cover cell junctions without end-cap seams', () => {
