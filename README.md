@@ -5,17 +5,17 @@
 >
 > 本项目使用的原作关卡设计、谜题结构和游戏机制均来自 **muratsubo Games** 开发及发行的 **[Maxwell's puzzling demon（Steam）](https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/)**。本项目仅提供非官方的 3D 呈现与实现，不主张这些关卡和机制的原创归属；与原作者没有隶属关系，也未获其认可或背书。请购买并支持原作。
 >
-> 原作名称、关卡、提示文字、美术、音频及其他原作内容的相关权利归各自权利人所有。**公开网页版包含导入的原作关卡数据**；这些内容不会因本项目公开而获得再分发授权。来源标注、非商业用途或本声明均不等于权利人的许可。
+> 原作名称、关卡、提示文字、美术、音频及其他原作内容的相关权利归各自权利人所有。**公开网页版仅内置 w1–w2 的原作关卡与提示，完整目录需从玩家自己的安装目录本地导入**；这些内容不会因本项目公开而获得再分发授权。来源标注、非商业用途或本声明均不等于权利人的许可。
 >
 > **若原作者或相关权利人要求停止发布或删除，我们将立即停止发布、关闭在线演示，并删除维护者控制的本项目仓库及相关分发内容。** 权利人可通过 [仓库 Issues](https://github.com/komonad/mpd-3d/issues) 联系维护者。
 >
-> The original levels, puzzle structure, and gameplay mechanics come from **Maxwell's puzzling demon by muratsubo Games**. This is an unofficial 3D implementation, with no affiliation, endorsement, or claim of authorship of the original designs. The public web build contains imported original level data; attribution does not grant permission to redistribute it.
+> The original levels, puzzle structure, and gameplay mechanics come from **Maxwell's puzzling demon by muratsubo Games**. This is an unofficial 3D implementation, with no affiliation, endorsement, or claim of authorship of the original designs. The public web build includes original worlds 1–2; the remaining original catalogue is read only from a player-selected local installation; attribution does not grant permission to redistribute it.
 >
 > **Upon a removal request from the original creator or relevant rights holder, the maintainer will immediately cease publication, take down the online demo, and delete this project's repository and associated distributions under the maintainer's control.** See [COPYRIGHT.md](COPYRIGHT.md) for the full notice and contact link.
 
 ## About
 
-A local Three.js adaptation of Maxwell's puzzling demon. All grid blocks use cubic dimensions. Rigid bodies have continuous surfaces, including concave outlines and holes. PBR materials distinguish matte housings, coated blocks, polished metal, and transmitting glass. Insulation and adhesive layers cover vertical faces and expose their cross-sections on top. Adhesive layers use six checker cells across each grid face. Clear squares expose the underlying surface; solid squares follow the local temperature color. The pattern follows continuous contours and rounded corner joints. Joined faces retain this layer at solid/glass and adhesive/insulated interfaces; homogeneous uninsulated solids merge without an internal seam. Glass has a clear refracting body, diagonal etched lines, and emphasized upper rims. Floor tiles use faint staggered scoring. Both surface patterns use monochrome color and roughness maps with mipmaps and anisotropic filtering. Number labels use a larger glyph area, a fine white keyline, and unlit ink to retain contrast across temperature colors and transparent surfaces. The renderer combines supersampling, multisampling, SMAA, board-fitted shadows, and ambient occlusion. Postprocessing targets match the canvas drawing buffer in physical pixels, including fractional display densities. Surface layers batch their faces by material. Orthographic camera distance and depth range contain the exterior terrain at every supported angle without changing projected scale.
+A local Three.js adaptation of Maxwell's puzzling demon. All grid blocks use cubic dimensions. Rigid bodies have continuous surfaces, including concave outlines and holes. PBR materials distinguish matte housings, coated blocks, polished metal, and transmitting glass. Insulation and adhesive layers cover vertical faces and expose their cross-sections on top. Adhesive layers use six checker cells across each grid face. Clear squares expose the underlying surface; solid squares follow the local temperature color. The pattern follows continuous contours and rounded corner joints. Joined faces retain this layer at solid/glass and adhesive/insulated interfaces; homogeneous uninsulated solids merge without an internal seam. Glass has a clear refracting body, diagonal etched lines, and emphasized upper rims. Floor tiles have clear grid lines. Glass surface patterns use monochrome color and roughness maps with mipmaps and anisotropic filtering. Number labels use a larger glyph area, a fine white keyline, and unlit ink to retain contrast across temperature colors and transparent surfaces. The renderer combines supersampling, multisampling, SMAA, board-fitted shadows, and ambient occlusion. Postprocessing targets match the canvas drawing buffer in physical pixels, including fractional display densities. Surface layers batch their faces by material. Orthographic camera distance and depth range contain the exterior terrain at every supported angle without changing projected scale.
 
 ## Run
 
@@ -35,7 +35,20 @@ node scripts/import-levels.mjs "D:\SteamLibrary\steamapps\common\Maxwell's puzzl
 
 The importer reads the installation without changing it. The generated `public/levels.local.json` contains local game data and is excluded from Git. No original executable, music, or textures are included in the source project.
 
+## 在浏览器中导入原作关卡
+
+1. 在 Steam 库中右键原作，选择 **管理 → 浏览本地文件**。
+2. 在 3D 版关卡列表顶部点击 **导入原作关卡 → 选择游戏文件夹**，选取原作安装目录。例如 `C:\Program Files (x86)\Steam\steamapps\common\Maxwell's puzzling demon`。
+3. 目录内应包含 `world/structure.json`、`world/*.mxw` 和 `languages/zh-CN.json`。实际的关卡文件夹名为 **world**。也可以单独选择它，但没有语言文件时不会显示提示文字。
+4. 页面校验完成后保存目录并重新加载；完整安装可读取完整世界，免费 Demo 安装只能读取其包含的内容。之后无需再次选择文件夹。
+
+推荐使用桌面 Chrome 或 Edge。文件夹选择器可能显示“上传”字样，但关卡和提示仅在浏览器读取、解析并保存在 IndexedDB，**不上传到服务器**。程序不会读取所选目录中的可执行文件、音乐或纹理。公开目录与完整目录使用独立的进度存储；首次建立完整目录进度时继承公开版的已完成和已发现关卡；导入内容、进度和个人回放均留在当前浏览器。清除网站数据会删除这些本地记录。导入窗口可移除本地目录并恢复公开内容，游玩进度和个人回放仍保留。
+
+请使用自己合法取得的安装文件并支持原作。免费可玩不等于允许复制关卡再发布；本地导入、来源声明与下架承诺也不构成授权。
+
 ## Web deployment
+
+The public build includes only worlds 1–2, their nested rooms and hints, an independently authored entrance, and the project’s own laboratory scenes. Other original world maps, rooms, hint collections, and replay snapshots are excluded from the build. Public replay routes are limited to the included worlds. The complete local development catalogue remains separate.
 
 The static web build runs at [komonad.github.io/mpd-3d](https://komonad.github.io/mpd-3d/). Build and publish from a checkout with imported level data:
 
@@ -44,7 +57,7 @@ npm run build:pages
 npm run publish:pages
 ```
 
-GitHub Pages serves the root of the `gh-pages` branch. That branch contains compiled assets and the playable level catalogue; `master` retains the source project. Asset and catalogue URLs respect the `/mpd-3d/` base path. The Pages build writes to `output/pages-dist`; the local build writes to `dist`. Each deployment includes `version.json` with its source revision. Publishing preserves the deployment branch history and does not switch the source checkout.
+GitHub Pages serves the root of the `gh-pages` branch. That branch contains compiled assets and the restricted playable level catalogue; `master` retains the source project. Asset and catalogue URLs respect the `/mpd-3d/` base path. The Pages build writes to `output/pages-dist`; the local build writes to `dist`. Each deployment includes `version.json` with its source revision. Publishing preserves the deployment branch history and does not switch the source checkout.
 
 ## Controls
 

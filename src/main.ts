@@ -1,4 +1,5 @@
 import './style.css';
+import { installLocalImport, readLocalLevels } from './local-levels';
 import { GameScene } from './scene';
 import { LevelEditor } from './editor';
 import { SolutionPanel } from './solution-panel';
@@ -30,7 +31,7 @@ const app = $('#app');
 app.innerHTML = `
   <aside class="origin-notice" aria-label="原作来源与权利声明">
     <div><p><strong>非官方 3D 项目</strong> · 关卡与游戏机制来自 <a href="https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/" target="_blank" rel="noopener noreferrer">Maxwell's puzzling demon</a>，原作者为 muratsubo Games。</p>
-    <p>本演示使用原作关卡数据，相关内容的权利归原权利人所有；本项目未获原作者认可或背书。若原作者或权利人要求下架，将立即停止发布并删除本项目及维护者控制的分发内容。<a href="https://github.com/komonad/mpd-3d/issues" target="_blank" rel="noopener noreferrer">权利人联系</a></p></div>
+    <p>公开版本仅内置 w1–w2 的原作关卡；完整内容通过玩家本地导入。相关内容的权利归原权利人所有；本项目未获原作者认可或背书。若原作者或权利人要求下架，将立即停止发布并删除本项目及维护者控制的分发内容。<a href="https://github.com/komonad/mpd-3d/issues" target="_blank" rel="noopener noreferrer">权利人联系</a></p></div>
     <a class="origin-steam" href="https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/" target="_blank" rel="noopener noreferrer">支持原作 · Steam ↗</a>
   </aside>
   <header class="app-header">
@@ -41,6 +42,7 @@ app.innerHTML = `
   </header>
   <main class="workspace">
     <aside class="sidebar" aria-label="关卡选择">
+      <div class="local-content"><span id="content-scope">关卡目录</span><button id="local-levels-button">导入原作关卡</button></div>
       <label class="world-picker-label" for="world-picker">快速跳转</label><select id="world-picker" aria-label="快速跳转"></select>
       <div class="chapter-eyebrow" id="chapter-eyebrow"></div>
       <h1 id="world-title"></h1>
@@ -77,7 +79,7 @@ app.innerHTML = `
 
 type Snapshot = Session;
 interface Preferences { tilt: number; light: number; quality: boolean; grid: boolean; sound: boolean; freeView: boolean }
-const storageKey = 'maxwell3d-save-v2';
+let storageKey = 'maxwell3d-save-v2';
 const preferencesKey = 'maxwell3d-preferences-v1';
 let data: Dataset, level: Level, state: State, scene: GameScene;
 let editor: LevelEditor;
@@ -428,8 +430,16 @@ function bind(): void {
 
 async function start(): Promise<void> {
   try {
-    const response = await fetch(`${import.meta.env.BASE_URL}levels.local.json`); if (!response.ok) throw new Error('关卡数据尚未导入。请在项目目录运行 npm run import:levels。');
-    data = await response.json(); data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
+    let local: Dataset | undefined;
+    try { local = await readLocalLevels(); } catch (error) { console.warn(error); }
+    if (local) data = local;
+    else {
+      const response = await fetch(`${import.meta.env.BASE_URL}levels.local.json`); if (!response.ok) throw new Error('关卡数据尚未导入。请点击「导入原作关卡」选择游戏安装目录。');
+      data = await response.json();
+    }
+    storageKey = data.edition === 'preview' ? 'maxwell3d-save-preview-v2' : 'maxwell3d-save-v2';
+    localImport.update(data, !!local);
+    data.levels.push(...laboratory); levelsById = new Map(data.levels.map(l => [l.id, l])); labels = new Map(data.levels.map(l => [l.id, l.displayName ?? l.label]));
     scene = new GameScene($('#scene-host'));
     solutionPanel = new SolutionPanel(data, {
       begin: () => {
@@ -456,6 +466,15 @@ async function start(): Promise<void> {
     if (saved) { session = completeHierarchy(data, saved); solved = new Set(session.solved); load(session.current.levelId, session.current.outside, session.current); }
     else {
       session = startSession(data);
+      if (local) {
+        try {
+          const preview = JSON.parse(localStorage.getItem('maxwell3d-save-preview-v2') ?? 'null');
+          if (Array.isArray(preview?.solved) && Array.isArray(preview?.visited)) {
+            session.solved = preview.solved.filter((id: string) => levelsById.has(id));
+            session.visited = [...new Set([...session.visited, ...preview.visited.filter((id: string) => levelsById.has(id))])];
+          }
+        } catch { /* A new full catalogue can start without public progress. */ }
+      }
       try {
         const legacy = JSON.parse(localStorage.getItem('maxwell3d-save-v1') ?? 'null');
         if (legacy && levelsById.has(legacy.state?.levelId) && Array.isArray(legacy.solved)) {
@@ -481,4 +500,5 @@ async function start(): Promise<void> {
     $('#state-message p').textContent = error instanceof Error ? error.message : String(error); console.error(error);
   }
 }
+const localImport = installLocalImport();
 void start();

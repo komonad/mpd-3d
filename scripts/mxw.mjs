@@ -5,7 +5,7 @@ export function decodeMxw(buffer, id) {
     return buffer[cursor++];
   };
   const signed = () => { const n = read(); return n > 127 ? n - 256 : n; };
-  const string = () => { const start = cursor; while (read() !== 0) {} return buffer.subarray(start, cursor - 1).toString('utf8'); };
+  const string = () => { const start = cursor; while (read() !== 0) {} return new TextDecoder().decode(buffer.subarray(start, cursor - 1)); };
   const block = () => {
     const tag = read();
     if (tag !== 2 && tag !== 5) throw new Error(`${id}: block tag ${tag} at ${cursor - 1}`);

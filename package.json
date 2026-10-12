@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "build:pages": "npm run build -- --base=/mpd-3d/ --outDir=output/pages-dist",
+    "build:pages": "tsc --noEmit && node scripts/build-pages.mjs",
     "publish:pages": "node scripts/publish-pages.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "import:levels": "node scripts/import-levels.mjs",

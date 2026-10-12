@@ -29,5 +29,5 @@ export interface State {
   transient?: boolean;
 }
 export interface World { id: string; index: number | string; title: string; description: string; supported: boolean }
-export interface Dataset { version: number; world: string; hub?: string; root?: string; worlds?: World[]; levels: Level[]; hints: Record<string, string> }
+export interface Dataset { version: number; world: string; hub?: string; root?: string; worlds?: World[]; levels: Level[]; hints: Record<string, string>; edition?: 'preview' }
 export type Direction = 0 | 1 | 2 | 3;
