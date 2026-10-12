@@ -1,4 +1,19 @@
-# Maxwell · 3D
+# Maxwell · 3D — 非官方项目 / Unofficial project
+
+> [!IMPORTANT]
+> **原作来源、权利归属与下架承诺 / Original work, rights, and removal policy**
+>
+> 本项目使用的原作关卡设计、谜题结构和游戏机制均来自 **muratsubo Games** 开发及发行的 **[Maxwell's puzzling demon（Steam）](https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/)**。本项目仅提供非官方的 3D 呈现与实现，不主张这些关卡和机制的原创归属；与原作者没有隶属关系，也未获其认可或背书。请购买并支持原作。
+>
+> 原作名称、关卡、提示文字、美术、音频及其他原作内容的相关权利归各自权利人所有。**公开网页版包含导入的原作关卡数据**；这些内容不会因本项目公开而获得再分发授权。来源标注、非商业用途或本声明均不等于权利人的许可。
+>
+> **若原作者或相关权利人要求停止发布或删除，我们将立即停止发布、关闭在线演示，并删除维护者控制的本项目仓库及相关分发内容。** 权利人可通过 [仓库 Issues](https://github.com/komonad/mpd-3d/issues) 联系维护者。
+>
+> The original levels, puzzle structure, and gameplay mechanics come from **Maxwell's puzzling demon by muratsubo Games**. This is an unofficial 3D implementation, with no affiliation, endorsement, or claim of authorship of the original designs. The public web build contains imported original level data; attribution does not grant permission to redistribute it.
+>
+> **Upon a removal request from the original creator or relevant rights holder, the maintainer will immediately cease publication, take down the online demo, and delete this project's repository and associated distributions under the maintainer's control.** See [COPYRIGHT.md](COPYRIGHT.md) for the full notice and contact link.
+
+## About
 
 A local Three.js adaptation of Maxwell's puzzling demon. All grid blocks use cubic dimensions. Rigid bodies have continuous surfaces, including concave outlines and holes. PBR materials distinguish matte housings, coated blocks, polished metal, and transmitting glass. Insulation and adhesive layers cover vertical faces and expose their cross-sections on top. Adhesive layers use six checker cells across each grid face. Clear squares expose the underlying surface; solid squares follow the local temperature color. The pattern follows continuous contours and rounded corner joints. Joined faces retain this layer at solid/glass and adhesive/insulated interfaces; homogeneous uninsulated solids merge without an internal seam. Glass has a clear refracting body, diagonal etched lines, and emphasized upper rims. Floor tiles use faint staggered scoring. Both surface patterns use monochrome color and roughness maps with mipmaps and anisotropic filtering. Number labels use a larger glyph area, a fine white keyline, and unlit ink to retain contrast across temperature colors and transparent surfaces. The renderer combines supersampling, multisampling, SMAA, board-fitted shadows, and ambient occlusion. Postprocessing targets match the canvas drawing buffer in physical pixels, including fractional display densities. Surface layers batch their faces by material. Orthographic camera distance and depth range contain the exterior terrain at every supported angle without changing projected scale.
 
@@ -19,14 +34,6 @@ node scripts/import-levels.mjs "D:\SteamLibrary\steamapps\common\Maxwell's puzzl
 ```
 
 The importer reads the installation without changing it. The generated `public/levels.local.json` contains local game data and is excluded from Git. No original executable, music, or textures are included in the source project.
-
-## Copyright and unofficial project notice
-
-This is an independent, unofficial fan project for studying puzzle mechanics and experimenting with 3D presentation. It is not affiliated with, endorsed by, or an official release of muratsubo Games. [Maxwell's puzzling demon](https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/) and its original level designs, text, artwork, audio, and other game content remain the property of their respective rights holders. The game name identifies the original work; this project claims no ownership of it.
-
-The Three.js implementation and generated 3D presentation are separate from the original game's content. Availability of this project's source does not grant a license to original game data or third-party content. The source checkout excludes the imported level catalogue and requires a legitimately obtained local installation for importing levels. The published web build includes imported level data; exclusion from the source branch does not remove that data's copyright or establish permission to redistribute it. Public redistribution of original content requires appropriate authorization from its rights holders.
-
-This project does not distribute the original executable or provide a license to the original game. Please support the original release. Rights holders can raise attribution or distribution concerns through the repository's issue tracker. This notice records attribution and project scope; it does not establish authorization or guarantee legal clearance.
 
 ## Web deployment
 
@@ -113,7 +120,7 @@ The default suite includes seven mechanism fixtures and recorded routes for [1-1
 
 Ordinary movement settles visually within 110 ms. Automatic turn playback samples at most six presentation frames within 140 ms while retaining all simulation frames. Holding Ctrl displays every motion and heat frame; releasing it resumes fast playback. One buffered direction can follow the current turn. Unchanged bodies retain their geometry when another body actuates or their temperatures equalize. Portal availability builds one contact graph per query. Persistence omits presentation frames and serializes the current session without cloning it. Glass decorations render after transmission and stay outside the glass refraction buffer. Insulating faces remain opaque and occlude transmitted views from both sides; the glass core leaves depth writes to opaque surfaces. Compressed housings can contain movable supported loads, while fixed bodies block housing movement. Thinking follows each demon's awake flag; hint-scene demons start awake.
 
-Laboratory pistons retain their separate anchored housing and single-head model. World 4 rooms 1–10 and 12–19, and original 8-01, have verified completion routes in the simulation. All main piston rooms are checked for occupancy and container invariants after opening moves. The complete puzzle set and exact mechanical stability graph have not been validated against original gameplay; difficult actuator combinations can differ. Mechanics use local level data, built-in explanations, and static analysis of the executable. See [mechanics reference](docs/mechanics.md) for the confirmed call paths.
+Laboratory pistons retain their separate anchored housing and single-head model. World 4 rooms 1–10 and 12–19, and original 8-01, have verified completion routes in the simulation. All main piston rooms are checked for occupancy and container invariants after opening moves. The complete puzzle set and exact mechanical stability graph have not been validated against original gameplay; difficult actuator combinations can differ. The implementation follows the original puzzle rules, with selected gameplay checkpoints and remaining limitations documented in the [mechanics reference](docs/mechanics.md).
 
 ## Development
 
@@ -125,6 +132,5 @@ npm run preview
 
 `src/engine.ts` contains pure grid and heat simulation. `src/topology.ts` describes layered occupancy and surface contacts. `src/boundary-pistons.ts` plans inventory and movable-boundary motion; `src/pistons.ts` settles thermal actions and supports laboratory actuators. `src/body-geometry.ts` constructs continuous body surfaces and side coatings. `src/scene.ts` renders the state without deciding movement. `src/inspection.ts` derives hover descriptions and nested inventory lists. `src/session.ts` handles room caches, canonical entries, and resets. `src/main.ts` handles history, local persistence, phase playback, and controls. `scripts/mxw.mjs` decodes the grid stream; `scripts/import-levels.mjs` imports the full hierarchy.
 
-MXW block flags use bit 0 for fixed anchors, bit 1 for heat storage, and bits 2–3 for temperature. Tag 5 adds a little-endian 16-bit heat capacity after these properties. Two-bit edge codes are ordered west, south, east, north: absent/welded, conducting, insulated, sticky. Heat transfer evaluates connected components simultaneously and weights finite temperatures by capacity; demons and transparent blocks contribute zero to the heat balance.
 
-MXW piston records contain tag 4, a state/orientation byte, block properties, and an order byte. State bit 0 marks expansion; the orientation pairs map north, east, south, west. A compressed record includes one recursive inventory object. An expanded record has no inventory payload. Flattened cells keep stable keys and explicit parent-container references.
+The importer preserves level hierarchy, block properties, and layered piston inventories. Simulation uses stable cell keys and explicit parent-container references.

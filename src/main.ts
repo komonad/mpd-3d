@@ -28,6 +28,11 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.qu
 const app = $('#app');
 
 app.innerHTML = `
+  <aside class="origin-notice" aria-label="原作来源与权利声明">
+    <div><p><strong>非官方 3D 项目</strong> · 关卡与游戏机制来自 <a href="https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/" target="_blank" rel="noopener noreferrer">Maxwell's puzzling demon</a>，原作者为 muratsubo Games。</p>
+    <p>本演示使用原作关卡数据，相关内容的权利归原权利人所有；本项目未获原作者认可或背书。若原作者或权利人要求下架，将立即停止发布并删除本项目及维护者控制的分发内容。<a href="https://github.com/komonad/mpd-3d/issues" target="_blank" rel="noopener noreferrer">权利人联系</a></p></div>
+    <a class="origin-steam" href="https://store.steampowered.com/app/2770160/Maxwells_puzzling_demon/" target="_blank" rel="noopener noreferrer">支持原作 · Steam ↗</a>
+  </aside>
   <header class="app-header">
     <button class="icon-button mobile-menu" id="menu-button" aria-label="显示关卡列表">${icon('menu')}</button>
     <a class="brand" href="#" aria-label="Maxwell 3D 首页"><span class="brand-mark"><i></i><b>••</b></span><span>MAXWELL’S<small>PUZZLING DEMON</small></span><em>3D</em></a>
