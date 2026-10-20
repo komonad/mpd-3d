@@ -22,6 +22,7 @@ export function labelBatch(labels: Mesh[]): { mesh: Mesh; update: () => void } {
   const point = new Vector3();
   const update = () => {
     labels.forEach((label, i) => {
+      label.matrixWorldNeedsUpdate = true;
       label.updateWorldMatrix(true, false);
       const source = label.geometry.getAttribute('position'), index = label.geometry.index;
       for (let j = 0; j < 6; j++) {

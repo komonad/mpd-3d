@@ -50,6 +50,14 @@ function labelTexture(text: string, weight = 700, ink = '#000000', locked = fals
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; return texture;
 }
 
+function demonShadowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const context = canvas.getContext('2d')!, gradient = context.createRadialGradient(32, 32, 5, 32, 32, 31);
+  gradient.addColorStop(0, '#00000050'); gradient.addColorStop(1, '#00000000');
+  context.fillStyle = gradient; context.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(canvas);
+}
+
 export class GameScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -63,7 +71,8 @@ export class GameScene {
   private demons: DemonVisual[] = [];
   private readonly adhesiveMaterial = new THREE.MeshPhysicalMaterial({ map: adhesiveTexture(), vertexColors: true, roughness: 0.38, metalness: 0.12, clearcoat: 0.4, alphaTest: 0.12, alphaToCoverage: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -1 });
   private readonly textures = surfaceTextures();
-  private readonly sharedTextures = new Set<THREE.Texture>([this.adhesiveMaterial.map!, ...Object.values(this.textures)]);
+  private readonly demonShadowMaterial = new THREE.MeshBasicMaterial({ map: demonShadowTexture(), transparent: true, depthWrite: false, toneMapped: false });
+  private readonly sharedTextures = new Set<THREE.Texture>([this.adhesiveMaterial.map!, this.demonShadowMaterial.map!, ...Object.values(this.textures)]);
   private parts = new THREE.Group();
   private labels: ReturnType<typeof levelLabels> = new Map();
   private visited = new Set<string>();
@@ -100,6 +109,9 @@ export class GameScene {
   private shadowDirty = true;
   private shadowBounds?: THREE.Box3;
   private labelsDirty = true;
+  private labelPositionsDirty = true;
+  private highQuality = true;
+  private detailResumeAt = 0;
   private readonly performanceMonitor: PerformanceMonitor;
   private readonly boardCache = new Map<Level, {
     board: THREE.Group; parts: THREE.Group; pieces: Map<number, THREE.Group>;
@@ -129,7 +141,7 @@ export class GameScene {
     this.controls.minPolarAngle = 0.02; this.controls.maxPolarAngle = Math.PI * 0.44;
     this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.controls.touches.ONE = THREE.TOUCH.ROTATE;
-    this.controls.addEventListener('change', () => { this.dirty = true; });
+    this.controls.addEventListener('change', () => { this.dirty = true; this.detailResumeAt = performance.now() + 160; });
 
     this.scene.add(new THREE.HemisphereLight('#fffdf7', '#8a9299', 1.1));
     const sun = this.sun; sun.position.set(-9, 16, 7); sun.castShadow = true;
@@ -168,6 +180,7 @@ export class GameScene {
 
   private mesh(geometry: THREE.BufferGeometry, material: THREE.Material | THREE.Material[], parent: THREE.Object3D, x = 0, y = 0, z = 0): THREE.Mesh {
     const object = new THREE.Mesh(geometry, material); object.position.set(x, y, z); object.castShadow = true; object.receiveShadow = true;
+    object.userData.pickSurface = !!parent.userData.cellKeys;
     parent.add(object); return object;
   }
 
@@ -176,7 +189,9 @@ export class GameScene {
     const matte = (color: string) => new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0, envMapIntensity: 0 });
     const material = matte(palette.demon), ink = new THREE.MeshBasicMaterial({ color: '#263039' });
     face.position.y = 0.56; group.add(face); face.add(eyes, faintEyes, thinkingEyes);
-    this.mesh(new THREE.SphereGeometry(0.48, 40, 32), material, group, 0, 0.56, 0);
+    this.mesh(new THREE.SphereGeometry(0.48, 40, 32), material, group, 0, 0.56, 0).castShadow = false;
+    const shadow = this.mesh(new THREE.PlaneGeometry(1.15, 1.15), this.demonShadowMaterial, group, 0, 0.003, 0);
+    shadow.rotation.x = -Math.PI / 2; shadow.castShadow = shadow.receiveShadow = false; shadow.userData.transmissiveOnly = true;
     const stroke = (points: number[][], parent: THREE.Group, radius = 0.014) => {
       const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p as [number, number, number])), false, 'centripetal');
       const line = this.mesh(new THREE.TubeGeometry(curve, points.length * 12, radius, 8, false), ink, parent); line.castShadow = false; return line;
@@ -194,6 +209,7 @@ export class GameScene {
     }
     stroke([[-0.26, -0.4, 0], [-0.4, -0.47, 0], [-0.48, -0.43, 0], [-0.55, -0.49, 0], [-0.64, -0.45, 0]], face, 0.013);
     faintEyes.visible = false; thinkingEyes.visible = false;
+    group.traverse(object => { object.updateMatrix(); object.matrixAutoUpdate = object === group || object === face; });
     return { group, target: new THREE.Vector3(), material, temperature: 0, face, eyes, faintEyes, thinkingEyes, awake: true };
   }
 
@@ -257,7 +273,7 @@ export class GameScene {
       insulation.userData.transmissionBarrier = true;
       // A constant depth bias separates coplanar layers without pulling grazing faces through occluders.
       insulation.polygonOffset = true; insulation.polygonOffsetFactor = 0; insulation.polygonOffsetUnits = -1;
-      this.mesh(layer, [insulation, this.adhesiveMaterial], g);
+      this.mesh(layer, [insulation, this.adhesiveMaterial], g).userData.pickSurface = false;
     } else layer.dispose();
     for (const cell of cells) {
       const x = cell.x - root.x, z = cell.y - root.y;
@@ -338,6 +354,7 @@ export class GameScene {
         object.userData.transmissiveOnly = true;
       });
     }
+    g.traverse(object => { object.updateMatrix(); object.matrixAutoUpdate = object === g || !!object.userData.base; });
     return g;
   }
 
@@ -545,7 +562,7 @@ export class GameScene {
 
   update(state: State, snap = false, activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle', duration?: number): void {
     if (!this.level) return;
-    this.dirty = this.shadowDirty = true;
+    this.dirty = true;
     this.cancelMotionWaits();
     const { width: w, height: h } = this.level;
     const previous = this.shownState, positions = new Map(previous?.cells.map(c => [c.key, c]) ?? []);
@@ -564,6 +581,8 @@ export class GameScene {
         return piston.baseKey === old.baseKey && piston.headKey === old.headKey && piston.expanded === old.expanded && piston.direction === old.direction && piston.model === old.model && piston.order === old.order;
       });
     this.shownState = state; this.activity = activity; this.syncBodies(state, snap, reuse);
+    this.shadowDirty ||= !reuse;
+    this.labelPositionsDirty ||= !reuse || snap;
     if (this.labelsDirty) this.rebuildLabels();
     while (this.demons.length > state.players.length) {
       const model = this.demons.pop()!; this.board.remove(model.group); this.disposeGroup(model.group);
@@ -615,7 +634,7 @@ export class GameScene {
     const batch = labels.length ? labelBatch(labels) : undefined;
     this.board.userData.labelBatch = batch;
     if (batch) this.board.add(batch.mesh);
-    this.labelsDirty = false;
+    this.labelsDirty = false; this.labelPositionsDirty = false;
   }
 
   animatePortal(points: { x: number; y: number }[], emerging = false): Promise<boolean> {
@@ -651,6 +670,7 @@ export class GameScene {
   setTilt(degrees: number): void { if (this.tilt === degrees) return; this.tilt = degrees; this.resetCamera(); }
   setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { if (m.visible !== visible) this.dirty = true; m.visible = visible; }); }
   setQuality(high: boolean): void {
+    this.highQuality = high;
     this.ao.enabled = high;
     const ratio = renderPixelRatio(devicePixelRatio, high);
     this.renderer.setPixelRatio(ratio); this.resize();
@@ -693,7 +713,11 @@ export class GameScene {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const hit = this.raycaster.intersectObjects([...this.pieces.values(), ...this.noteMarkers], true)[0];
+    const surfaces: THREE.Object3D[] = [...this.noteMarkers];
+    this.parts.traverse(object => {
+      if (object.userData.bodySurface || object.userData.pickSurface || object.userData.labelKey !== undefined) surfaces.push(object);
+    });
+    const hit = this.raycaster.intersectObjects(surfaces, false)[0];
     if (!hit) return;
     if (hit.object.userData.note) return { note: hit.object.userData.note };
     let group: THREE.Object3D | null = hit.object;
@@ -715,11 +739,18 @@ export class GameScene {
     this.performanceMonitor.frame(now);
     const finished = now - this.lastStep >= this.motionDuration;
     const factor = finished ? 1 : 1 - Math.exp(-36 * dt * animationTiming.move / this.motionDuration);
-    this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
+    this.pieces.forEach((g, key) => {
+      const target = this.targets.get(key);
+      if (target) {
+        const moved = !g.position.equals(target); this.shadowDirty ||= moved; this.labelPositionsDirty ||= moved;
+        g.position.lerp(target, factor);
+      }
+    });
     if (finished && this.mergingBodies && this.shownState) this.syncBodies(this.shownState, true);
     const moving = this.activity !== 'idle' && now - this.lastStep < this.motionDuration;
     const active = this.demons.filter(d => d.temperature !== 1 && d.awake), temperature = active[0]?.temperature ?? this.demons[0]?.temperature ?? 0;
     const thinking = this.demons.some(d => !d.awake && d.temperature !== 1);
+    const thinkingAnimation = thinking && this.highQuality && (this.shownState?.cells.length ?? 0) < 128;
     const text = demonStatus(active.length, this.demons.length, this.activity, moving, thinking, this.shownState?.phase === 'cycling');
     const statusKey = `${temperature}:${text}`;
     if (statusKey !== this.status) { this.status = statusKey; this.onStatus?.(temperature, text); }
@@ -732,9 +763,10 @@ export class GameScene {
       model.eyes.visible = !hot && !inThought; model.faintEyes.visible = hot; model.thinkingEyes.visible = inThought;
       model.group.position.y = 0.055;
       model.group.rotation.x = 0;
-      model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, inThought ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
+      model.group.rotation.z = THREE.MathUtils.lerp(model.group.rotation.z, inThought && thinkingAnimation ? Math.sin(now * 0.0015) * 0.06 : 0, factor);
     }
     this.pistonRods.forEach(p => {
+      this.shadowDirty ||= p.rod.scale.y !== p.target;
       p.rod.scale.y = THREE.MathUtils.lerp(p.rod.scale.y, p.target, factor);
       p.rod.position.copy(p.rod.userData.base); const d = [[-1, 0], [0, 1], [1, 0], [0, -1]][p.direction];
       p.rod.position.x += d[0] * (0.35 + p.rod.scale.y * 0.4); p.rod.position.z += d[1] * (0.35 + p.rod.scale.y * 0.4);
@@ -749,9 +781,11 @@ export class GameScene {
       model.group.updateWorldMatrix(true, false);
       model.face.quaternion.copy(model.group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(cameraFacing));
     }
-    const animating = !finished || !!this.portalMotion || thinking || this.mergingBodies;
+    const animating = !finished || !!this.portalMotion || thinkingAnimation || this.mergingBodies;
     if (this.labelsDirty) this.rebuildLabels();
-    if (!finished || this.shadowDirty) this.board.userData.labelBatch?.update();
+    if (this.labelPositionsDirty) { this.board.userData.labelBatch?.update(); this.labelPositionsDirty = false; }
+    const detailed = this.highQuality && !animating && now >= this.detailResumeAt;
+    if (this.ao.enabled !== detailed) { this.ao.enabled = detailed; this.dirty = true; }
     if (this.dirty || animating) {
       if (this.level) {
         const { width, height } = this.level;
@@ -759,15 +793,18 @@ export class GameScene {
           new THREE.Vector3(-width / 2 - 1.2, -0.6, -height / 2 - 1.2),
           new THREE.Vector3(width / 2 + 1.2, 1.8, height / 2 + 1.2),
         ), this.sun.position);
-        if (!this.shadowBounds?.equals(bounds)) {
+        if (!this.shadowBounds?.containsBox(bounds)) {
+          const size = bounds.getSize(new THREE.Vector3());
+          bounds.min.x -= Math.max(2, size.x * 0.25); bounds.max.x += Math.max(2, size.x * 0.25);
+          bounds.min.z -= Math.max(2, size.z * 0.25); bounds.max.z += Math.max(2, size.z * 0.25);
           fitShadowCamera(this.sun.shadow.camera, bounds);
           this.shadowBounds = bounds; this.shadowDirty = true;
         }
       }
-      this.renderer.shadowMap.needsUpdate = this.shadowDirty || animating;
+      this.renderer.shadowMap.needsUpdate = this.shadowDirty;
       this.performanceMonitor.beginRender();
       try { this.composer.render(); } finally { this.performanceMonitor.endRender(); }
-      this.dirty = animating; this.shadowDirty = animating;
+      this.dirty = animating; this.shadowDirty = false;
     }
     if (this.portalMotion && now - this.portalMotion.start >= this.portalMotion.duration) this.portalMotion = undefined;
     if (this.motionWaiters.length && !this.portalMotion) {
@@ -791,7 +828,7 @@ export class GameScene {
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) { geometries.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => materials.add(m)); }
     });
     geometries.forEach(g => g.dispose()); materials.forEach(m => {
-      if (m === this.adhesiveMaterial) return;
+      if (m === this.adhesiveMaterial || m === this.demonShadowMaterial) return;
       const material = m as THREE.MeshStandardMaterial;
       for (const texture of [material.map, material.normalMap, material.roughnessMap]) if (texture && !this.sharedTextures.has(texture)) texture.dispose();
       m.dispose();
