@@ -17,6 +17,7 @@ import { SurfaceSSAOPass } from './surface-ao';
 import { batchSurfaceGroups, surfaceMaterialRegions } from './surface-batching';
 import { prepareSurfacePicking, surfaceRaycast } from './surface-picking';
 import { labelBatch } from './label-batch';
+import { PerformanceMonitor } from './performance-monitor';
 import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth, spawnPoints } from './view-state';
 import { depth, directions, opposite } from './topology';
 import { portalPresentation, type levelLabels } from './level-labels';
@@ -99,6 +100,7 @@ export class GameScene {
   private shadowDirty = true;
   private shadowBounds?: THREE.Box3;
   private labelsDirty = true;
+  private readonly performanceMonitor: PerformanceMonitor;
   private readonly boardCache = new Map<Level, {
     board: THREE.Group; parts: THREE.Group; pieces: Map<number, THREE.Group>;
     targets: Map<number, THREE.Vector3>; demons: DemonVisual[];
@@ -116,6 +118,8 @@ export class GameScene {
     this.renderer.setClearColor('#ffffff', 0);
     this.renderer.domElement.setAttribute('aria-label', '三维关卡棋盘，使用方向键或 WASD 移动');
     this.host.append(this.renderer.domElement);
+    this.performanceMonitor = new PerformanceMonitor(this.renderer, this.host);
+    this.performanceMonitor.setEnabled(new URLSearchParams(location.search).has('perf'));
     const pmrem = new THREE.PMREMGenerator(this.renderer), environment = new RoomEnvironment();
     this.scene.environment = pmrem.fromScene(environment, 0.04).texture; environment.dispose(); pmrem.dispose();
     this.scene.environmentIntensity = 0.65;
@@ -153,7 +157,7 @@ export class GameScene {
       const hit = this.hit(e); if (hit?.portal) this.onPortalClick?.(hit.portal);
       if (hit?.note) this.onNoteClick?.(hit.note);
     });
-    document.addEventListener('visibilitychange', () => { this.running = !document.hidden; });
+    document.addEventListener('visibilitychange', () => { this.running = !document.hidden; this.performanceMonitor.resetClock(); });
     this.resize(); this.renderer.setAnimationLoop(() => this.animate());
   }
 
@@ -451,6 +455,7 @@ export class GameScene {
   }
 
   load(level: Level, state: State, labels: ReturnType<typeof levelLabels>, preserveCamera = false): void {
+    this.performanceMonitor.setScene(level.id);
     this.shadowBounds = undefined;
     preserveCamera ||= this.level?.id === level.id;
     this.cancelMotionWaits();
@@ -651,6 +656,7 @@ export class GameScene {
     this.renderer.setPixelRatio(ratio); this.resize();
   }
   setExposure(exposure: number): void { this.dirty = true; this.renderer.toneMappingExposure = exposure; }
+  togglePerformanceMonitor(): boolean { return this.performanceMonitor.toggle(); }
   private stopCameraInertia(): void {
     const position = this.camera.position.clone(), target = this.controls.target.clone();
     const damping = this.controls.enableDamping;
@@ -706,6 +712,7 @@ export class GameScene {
   private animate(): void {
     const now = performance.now(), dt = Math.min((now - this.previousTime) / 1000, 0.1); this.previousTime = now;
     if (!this.running) return;
+    this.performanceMonitor.frame(now);
     const finished = now - this.lastStep >= this.motionDuration;
     const factor = finished ? 1 : 1 - Math.exp(-36 * dt * animationTiming.move / this.motionDuration);
     this.pieces.forEach((g, key) => { const target = this.targets.get(key); if (target) g.position.lerp(target, factor); });
@@ -758,7 +765,8 @@ export class GameScene {
         }
       }
       this.renderer.shadowMap.needsUpdate = this.shadowDirty || animating;
-      this.composer.render();
+      this.performanceMonitor.beginRender();
+      try { this.composer.render(); } finally { this.performanceMonitor.endRender(); }
       this.dirty = animating; this.shadowDirty = animating;
     }
     if (this.portalMotion && now - this.portalMotion.start >= this.portalMotion.duration) this.portalMotion = undefined;
