@@ -10,7 +10,7 @@ import { cloneState, exposeOpenWelds, initialState, move, syncExteriorTemperatur
 import { inspectCell } from './inspection';
 import { compareLevels, levelIdentifier, levelLabels } from './level-labels';
 import { animationTiming, turnPlayback } from './turn-playback';
-import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, startSession, unlockedWorlds, type Session } from './session';
+import { completeHierarchy, createSession, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, snapshotSession, startSession, unlockedWorlds, type Session } from './session';
 import type { Dataset, Direction, Level, State, Temperature, World } from './types';
 
 const icons: Record<string, string> = {
@@ -108,7 +108,7 @@ function levelName(l: Level): string {
   return `关卡 ${levelIdentifier(l)}`;
 }
 function snapshotData(): Snapshot { const { turnFrames: _, ...current } = state; return { ...session, current }; }
-function snapshot(): Snapshot { return structuredClone(snapshotData()); }
+function snapshot(): Snapshot { return snapshotSession(snapshotData()); }
 function canExit(): boolean { return session.hints.length > 0 || !!session.entries[state.levelId]; }
 function currentWorld(): World { return data.worlds?.find(w => w.id === selectedWorld) ?? { id: data.world, index: 1, title: '温度的世界', description: '冷与热之间，寻找平衡。', supported: true }; }
 function remember(previous = snapshot()): void { undoHistory.push(previous); if (undoHistory.length > 512) undoHistory.shift(); redoHistory = []; }
@@ -125,10 +125,22 @@ function playTone(kind: 'move' | 'push' | 'solve' | 'undo'): void {
     oscillator.start(time); oscillator.stop(time + 0.45);
   } catch { /* Audio support is optional for movement. */ }
 }
+const pendingSaves = new Map<string, Snapshot>();
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function flushSaves(): void {
+  clearTimeout(saveTimer); saveTimer = undefined;
+  for (const [key, snapshot] of pendingSaves) {
+    try { localStorage.setItem(key, JSON.stringify(snapshot)); }
+    catch { $('#save-status').textContent = '当前浏览器无法保存进度'; }
+  }
+  pendingSaves.clear();
+}
 function save(): void {
   if (solutionPanel?.active) return;
-  try { localStorage.setItem(isEditorTestLevel(level) ? testStorageKey : storageKey, JSON.stringify(snapshotData())); $('#save-status').textContent = isEditorTestLevel(level) ? '测试场景独立保存在本机' : '进度自动保存在本机'; }
-  catch { $('#save-status').textContent = '当前浏览器无法保存进度'; }
+  const testing = isEditorTestLevel(level);
+  pendingSaves.set(testing ? testStorageKey : storageKey, snapshotData());
+  clearTimeout(saveTimer); saveTimer = setTimeout(flushSaves, 250);
+  $('#save-status').textContent = testing ? '测试场景独立保存在本机' : '进度自动保存在本机';
 }
 function renderLevels(): void {
   const signature = JSON.stringify([selectedWorld, category, level.id, [...solved]]);
@@ -374,6 +386,8 @@ async function toggleFullscreen(): Promise<void> {
   updateFullscreen();
 }
 function bind(): void {
+  window.addEventListener('pagehide', flushSaves);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) flushSaves(); });
   const openEditor = (current?: Level) => { solutionPanel.close(); cancelPlayback(); $('#editor-button').setAttribute('data-origin', level.id); try { editor.open(current); } catch (error) { notify(error instanceof Error ? error.message : String(error)); } };
   $('#editor-button').onclick = () => openEditor(); $('#edit-level-button').onclick = () => openEditor(level);
   $('#solutions-button').onclick = () => { if (editor.active) editor.close(); solutionPanel.open(level.id); };

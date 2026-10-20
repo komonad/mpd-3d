@@ -264,7 +264,8 @@ export function bodyGeometry(cells: Cell[], height: number, exterior?: { width: 
     });
     if (owner >= 0) shapes[owner].holes.push(points);
   }
-  const geometry = new THREE.ExtrudeGeometry(shapes, { depth: height - 0.06, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 3, steps: 1, curveSegments: 8 });
+  const large = cells.length > 256;
+  const geometry = new THREE.ExtrudeGeometry(shapes, { depth: height - 0.06, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: large ? 2 : 3, steps: 1, curveSegments: large ? 4 : 8 });
   geometry.rotateX(-Math.PI / 2); geometry.translate(0, bodyBaseHeight + 0.03, 0);
   geometry.clearGroups(); geometry.addGroup(0, geometry.getAttribute('position').count, 0);
   if (uniform) return geometry;
@@ -282,11 +283,14 @@ export function bodySurfaceGeometries(cells: Cell[], height: number, exterior?: 
 }
 
 // Material partitions clip the rounded surface; they never create internal faces.
-export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometry, exterior?: { width: number; height: number }): THREE.BufferGeometry {
+export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometry, exterior?: { width: number; height: number }, owners?: ReadonlySet<number>): THREE.BufferGeometry {
   type Vertex = { p: THREE.Vector3; n: THREE.Vector3; uv: THREE.Vector2 };
   const root = cells[0], byPosition = new Map(cells.map((c, i) => [key(c), i]));
   const buckets = cells.map(() => ({ positions: [] as number[], normals: [] as number[], uv: [] as number[] }));
   const position = surface.getAttribute('position'), normal = surface.getAttribute('normal'), uv = surface.getAttribute('uv');
+  const selected = owners && cells.filter((_, index) => owners.has(index));
+  const exceptions = cells.length > 256 && !owners ? cells.flatMap((cell, index) => cell.storesHeat !== root.storesHeat || cell.temperature !== root.temperature ? [index] : []) : [];
+  const regional = exceptions.length === 1;
   const interpolate = (a: Vertex, b: Vertex, t: number): Vertex => ({ p: a.p.clone().lerp(b.p, t), n: a.n.clone().lerp(b.n, t), uv: a.uv.clone().lerp(b.uv, t) });
   function clip(polygon: Vertex[], axis: 'x' | 'z', boundary: number, sign: number): Vertex[] {
     const result: Vertex[] = [];
@@ -299,7 +303,35 @@ export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometr
     return result;
   }
   for (let i = 0; i < position.count; i += 3) {
+    if (selected) {
+      const minX = Math.min(position.getX(i), position.getX(i + 1), position.getX(i + 2)) + root.x;
+      const maxX = Math.max(position.getX(i), position.getX(i + 1), position.getX(i + 2)) + root.x;
+      const minY = Math.min(position.getZ(i), position.getZ(i + 1), position.getZ(i + 2)) + root.y;
+      const maxY = Math.max(position.getZ(i), position.getZ(i + 1), position.getZ(i + 2)) + root.y;
+      // Rim tubes stay within one cell of their owning contour segment.
+      if (!selected.some(cell => cell.x + 1 >= minX && cell.x - 1 <= maxX && cell.y + 1 >= minY && cell.y - 1 <= maxY)) continue;
+    }
     const triangle = [0, 1, 2].map(j => ({ p: new THREE.Vector3().fromBufferAttribute(position, i + j), n: new THREE.Vector3().fromBufferAttribute(normal, i + j), uv: new THREE.Vector2(uv.getX(i + j), uv.getY(i + j)) }));
+    if (regional) {
+      const index = exceptions[0], cell = cells[index], x = cell.x - root.x, z = cell.y - root.y;
+      const middle = clip(clip(triangle, 'x', x - 0.5, 1), 'x', x + 0.5, -1);
+      const polygons = [clip(triangle, 'x', x - 0.5, -1), clip(triangle, 'x', x + 0.5, 1),
+        clip(middle, 'z', z - 0.5, -1), clip(middle, 'z', z + 0.5, 1), clip(clip(middle, 'z', z - 0.5, 1), 'z', z + 0.5, -1)];
+      polygons.forEach((polygon, part) => {
+        const bucket = buckets[part === 4 ? index : 0];
+        for (let j = 1; j < polygon.length - 1; j++) {
+          const vertices = [polygon[0], polygon[j], polygon[j + 1]];
+          if (vertices[1].p.clone().sub(vertices[0].p).cross(vertices[2].p.clone().sub(vertices[0].p)).lengthSq() < 1e-16) continue;
+          for (const vertex of vertices) {
+            bucket.positions.push(vertex.p.x, vertex.p.y, vertex.p.z);
+            const length = vertex.n.length() || 1;
+            bucket.normals.push(vertex.n.x / length, vertex.n.y / length, vertex.n.z / length);
+            bucket.uv.push(vertex.uv.x, vertex.uv.y);
+          }
+        }
+      });
+      continue;
+    }
     const xs = triangle.map(v => v.p.x + root.x), zs = triangle.map(v => v.p.z + root.y);
     if (exterior) {
       const west = -root.x - 0.5, east = exterior.width - root.x - 0.5, north = -root.y - 0.5, south = exterior.height - root.y - 0.5;
@@ -320,16 +352,23 @@ export function partitionBodySurface(cells: Cell[], surface: THREE.BufferGeometr
         const center = polygon.reduce((sum, v) => sum.add(v.p), new THREE.Vector3()).multiplyScalar(1 / polygon.length);
         const index = byPosition.get(`${x},${y}`) ?? cells.reduce((best, c, j) =>
           Math.hypot(c.x - root.x - center.x, c.y - root.y - center.z) < Math.hypot(cells[best].x - root.x - center.x, cells[best].y - root.y - center.z) ? j : best, 0);
+        if (owners && !owners.has(index)) continue;
         const bucket = buckets[index];
         for (let j = 1; j < polygon.length - 1; j++) {
           const vertices = [polygon[0], polygon[j], polygon[j + 1]];
           if (vertices[1].p.clone().sub(vertices[0].p).cross(vertices[2].p.clone().sub(vertices[0].p)).lengthSq() < 1e-16) continue;
-          for (const v of vertices) { bucket.positions.push(...v.p.toArray()); bucket.normals.push(...v.n.clone().normalize().toArray()); bucket.uv.push(...v.uv.toArray()); }
+          for (const v of vertices) {
+            bucket.positions.push(v.p.x, v.p.y, v.p.z);
+            const length = v.n.length() || 1;
+            bucket.normals.push(v.n.x / length, v.n.y / length, v.n.z / length);
+            bucket.uv.push(v.uv.x, v.uv.y);
+          }
         }
       }
     }
   }
   const geometry = new THREE.BufferGeometry(), positions: number[] = [], normals: number[] = [], coordinates: number[] = [];
+  if (regional) geometry.userData.materialRegions = true;
   buckets.forEach((b, i) => {
     if (b.positions.length) geometry.addGroup(positions.length / 3, b.positions.length / 3, i);
     for (const value of b.positions) positions.push(value);

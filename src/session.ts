@@ -11,6 +11,16 @@ export interface Session {
   entries: Record<string, Entry>; hints: HintFrame[]; serial: number;
 }
 
+// Cached room versions are replaced by recordState and scene transitions.
+// Copy their tables while isolating live state and mutable session metadata.
+export function snapshotSession(session: Session): Session {
+  return {
+    ...session, current: cloneState(session.current), solved: [...session.solved], visited: [...session.visited],
+    states: { ...session.states }, baselines: { ...session.baselines },
+    entries: structuredClone(session.entries), hints: session.hints.map(frame => ({ ...frame })),
+  };
+}
+
 export function createSession(level: Level, solved: string[] = [], visited: string[] = []): Session {
   const current = initialState(level, new Set(solved));
   current.players.forEach((p, i) => { p.key = `${level.id}:0:${i}`; });

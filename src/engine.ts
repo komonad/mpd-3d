@@ -5,7 +5,15 @@ import { moveBoundaryDemons } from './boundary-pistons';
 
 // Edge pairs are ordered west, south, east, north in the MXW stream.
 export { directions, edge, opposite, positionKey } from './topology';
-export const cloneState = (state: State): State => { const { turnFrames: _, ...rest } = state; return structuredClone(rest); };
+export const cloneState = (state: State): State => {
+  const { turnFrames: _, ...rest } = state;
+  return {
+    ...rest,
+    cells: state.cells.map(cell => ({ ...cell, ...(cell.portal ? { portal: { ...cell.portal, before: { ...cell.portal.before }, after: { ...cell.portal.after } } } : {}) })),
+    players: state.players.map(player => ({ ...player })),
+    ...(state.pistons ? { pistons: state.pistons.map(piston => ({ ...piston, head: { ...piston.head } })) } : {}),
+  };
+};
 export const canMoveDemon = (player: State['players'][number]): boolean => player.temperature !== 1 && player.awake !== false;
 
 export function exposeOpenWelds(level: Pick<Level, 'width' | 'height'>, state: State, onlyKeys?: ReadonlySet<number>): void {

@@ -1,16 +1,21 @@
 import type { Cell, Direction, Level, Piston, State, TurnFrame } from './types';
-import { bodies, canMoveDemon, directions, exposeOpenWelds, positionKey, transferHeat } from './engine';
+import { bodies, canMoveDemon, cloneState, directions, exposeOpenWelds, positionKey, transferHeat } from './engine';
 import { actuateBoundary } from './boundary-pistons';
 
 export function pushPlan(level: Level, state: State, x: number, y: number, direction: Direction, forcePlayers = false, ignoredPlayer = -1, ignoredCells = new Set<number>()): { cells: Set<number>; players: Set<number> } | null {
-  const delta = directions[direction], groups = bodies(state.cells), cellGroups = new Map<number, Cell[]>();
-  groups.forEach(g => g.forEach(c => cellGroups.set(c.key, g)));
+  const delta = directions[direction];
+  let cellGroups: Map<number, Cell[]> | undefined;
   const lookup = new Map(state.cells.filter(c => !ignoredCells.has(c.key)).map(c => [positionKey(c.x, c.y), c]));
   const cells = new Set<number>(), players = new Set<number>();
   function visit(tx: number, ty: number, displacePlayers = forcePlayers): boolean {
     if (tx < 0 || ty < 0 || tx >= level.width || ty >= level.height) return false;
     const obstacle = lookup.get(positionKey(tx, ty));
     if (obstacle && !cells.has(obstacle.key)) {
+      if (obstacle.fixed) return false;
+      if (!cellGroups) {
+        cellGroups = new Map();
+        bodies(state.cells).forEach(group => group.forEach(cell => cellGroups!.set(cell.key, group)));
+      }
       const group = cellGroups.get(obstacle.key)!;
       if (group.some(c => c.fixed && !ignoredCells.has(c.key))) return false;
       if (group.some(c => !ignoredCells.has(c.key) && state.pistons?.some(p => p.expanded && p.headKey === c.key))) return false;
@@ -89,7 +94,8 @@ function actuate(level: Level, state: State, piston: Piston): boolean {
 
 const signature = (s: State) => JSON.stringify([s.cells.map(c => [c.key, c.x, c.y, c.temperature, c.container ?? -1]).sort((a, b) => a[0] - b[0]), s.players, s.pistons]);
 export function captureFrame(state: State, phase: TurnFrame['phase']): TurnFrame {
-  return structuredClone({ cells: state.cells, players: state.players, pistons: state.pistons ?? [], phase });
+  const { cells, players, pistons } = cloneState(state);
+  return { cells, players, pistons: pistons ?? [], phase };
 }
 export function settleTurn(level: Level, state: State, beforeMotion?: State): void {
   state.transient = false;

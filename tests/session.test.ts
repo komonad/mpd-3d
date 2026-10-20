@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { bodies, edge, initialState, move, transferHeat } from '../src/engine';
-import { completeHierarchy, createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, startSession, unlockedWorlds } from '../src/session';
+import { completeHierarchy, createSession, destroyCells, enterHint, enterPortal, exitLevel, portalCandidates, recordState, resetSession, selectSession, snapshotSession, startSession, unlockedWorlds } from '../src/session';
 import { fixedAnchorPoints } from '../src/body-geometry';
 import { laboratory } from '../src/laboratory';
 import type { BlockProperties, Cell, Dataset, Level, Temperature } from '../src/types';
@@ -12,6 +12,23 @@ const cell = (x: number, y: number, temperature: Temperature = 0, edges = 0x55):
 const level = (id: string, cells: Level['cells'] = [], players = [{ x: 1, y: 2 }], parentId?: string): Level => ({ id, label: id, category: 'main', width: 8, height: 6, cells, players, goals: [], tail: [0], parentId });
 const portal = (x: number, y: number, target: string, shortcut = false, temperature: Temperature = 0): Cell => ({ ...cell(x, y, temperature), portal: { target, shortcut, before: properties(temperature), after: properties() } });
 const catalogue = (...levels: Level[]): Dataset => ({ version: 2, world: levels[0].id, levels, hints: {} });
+
+test('session snapshots retain room versions across movement, progress and transitions', () => {
+  const parent = level('parent', [portal(2, 2, 'child')]), child = level('child', [], undefined, parent.id), data = catalogue(parent, child);
+  const current = createSession(parent), snapshot = snapshotSession(current), expected = JSON.stringify(snapshot);
+  assert.equal(snapshot.states.parent, current.states.parent);
+  assert.notEqual(snapshot.current, current.current);
+  const moved = move(parent, current.current, 1)!;
+  recordState(current, moved, parent); current.solved.push('child'); current.visited.push('child');
+  current.current.players[0].x++;
+  assert.equal(JSON.stringify(snapshot), expected);
+  const entered = enterPortal(data, snapshot)!;
+  const childSnapshot = snapshotSession(entered), childExpected = JSON.stringify(childSnapshot);
+  const next = move(child, entered.current, 2)!; recordState(entered, next, child);
+  resetSession(entered); exitLevel(data, entered);
+  assert.equal(JSON.stringify(snapshot), expected);
+  assert.equal(JSON.stringify(childSnapshot), childExpected);
+});
 
 test('new sessions start in the outer root while direct selections retain their hierarchy', () => {
   const root = level('root', [portal(2, 2, 'hub')]), hub = level('hub', [portal(2, 2, 'world')], undefined, 'root');

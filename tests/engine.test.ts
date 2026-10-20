@@ -7,6 +7,20 @@ import type { Cell, Dataset, Level } from '../src/types.ts';
 const block = (x: number, y: number, temperature: -1 | 0 | 1 = 0, edges = 0x55, fixed = false, storesHeat = true): Cell => ({ key: y * 10 + x, x, y, temperature, edges, fixed, storesHeat });
 const fixture = (cells: Cell[], players = [{ x: 1, y: 2 }], goals = [{ x: 4, y: 2 }]): Level => ({ id: 'test', width: 7, height: 6, label: 'test', category: 'main', cells, players, goals, tail: [0] });
 
+test('state copies isolate portal definitions, piston heads, cells and players without turn history', () => {
+  const state = initialState(fixture([block(2, 2)]));
+  state.cells[0].portal = { target: 'child', shortcut: true, before: { ...state.cells[0] }, after: { ...state.cells[0] } };
+  state.pistons = [{ baseKey: 0, headKey: 1, direction: 2, expanded: false, order: 0, head: { ...state.cells[0] } }];
+  state.turnFrames = [{ phase: 'motion', cells: [], players: [], pistons: [] }];
+  const copy = cloneState(state);
+  assert.equal(copy.turnFrames, undefined);
+  assert.notEqual(copy.cells[0].portal, state.cells[0].portal);
+  copy.cells[0].portal!.before.temperature = -1; copy.cells[0].portal!.after.temperature = 1;
+  copy.cells[0].x++; copy.players[0].x++; copy.pistons![0].head.temperature = 1;
+  assert.equal(state.cells[0].portal.before.temperature, 0); assert.equal(state.cells[0].portal.after.temperature, 0);
+  assert.equal(state.cells[0].x, 2); assert.equal(state.players[0].x, 1); assert.equal(state.pistons[0].head.temperature, 0);
+});
+
 test('a hot and cold connected pair becomes neutral simultaneously', () => {
   const l = fixture([block(3, 2, 1), block(4, 2, -1)]), s = initialState(l);
   transferHeat(l, s); assert.deepEqual(s.cells.map(c => c.temperature), [0, 0]);

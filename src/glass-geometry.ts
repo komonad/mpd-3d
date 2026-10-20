@@ -22,7 +22,7 @@ export function glassRimGeometry(cells: Cell[], height: number): THREE.BufferGeo
         path.add(new THREE.QuadraticBezierCurve3(point(c.entry), point(c.center), point(c.exit)));
         path.add(new THREE.LineCurve3(point(c.exit), point(corners[(index + 1) % corners.length].entry)));
       });
-      parts.push(new THREE.TubeGeometry(path, Math.ceil(path.getLength() * 24), y === hi ? 0.019 : 0.01, 8, true));
+      parts.push(new THREE.TubeGeometry(path, Math.ceil(path.getLength() * (cells.length > 256 ? 12 : 24)), y === hi ? 0.019 : 0.01, 8, true));
     }
     for (const c of corners) {
       const p = c.entry.clone().add(c.exit).multiplyScalar(0.25).addScaledVector(c.center, 0.5);
@@ -32,7 +32,8 @@ export function glassRimGeometry(cells: Cell[], height: number): THREE.BufferGeo
   }
   const geometry = mergeGeometries(parts)!; parts.forEach(p => p.dispose());
   if (cells.every(c => !c.storesHeat)) return geometry;
-  const triangles = geometry.toNonIndexed(), surface = partitionBodySurface(cells, triangles);
+  const owners = new Set(cells.flatMap((cell, index) => cell.storesHeat ? [] : [index]));
+  const triangles = geometry.toNonIndexed(), surface = partitionBodySurface(cells, triangles, undefined, owners);
   triangles.dispose(); geometry.dispose();
   const groups = surface.groups.filter(g => !cells[g.materialIndex ?? 0].storesHeat), result = new THREE.BufferGeometry();
   for (const name of ['position', 'normal', 'uv']) {

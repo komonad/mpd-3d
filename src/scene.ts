@@ -10,10 +10,13 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { bodies } from './engine';
 import { motionBodies } from './body-motion';
 import { blockHeight, bodyLayerGeometry, bodySurfaceGeometries, exteriorHalfExtent, fixedAnchorPoints } from './body-geometry';
-import { fitShadowCamera, renderPixelRatio } from './render-quality';
+import { fitShadowCamera, renderPixelRatio, visibleShadowBounds } from './render-quality';
 import { adhesiveTexture, surfaceTextures } from './surface-materials';
 import { glassRimGeometry } from './glass-geometry';
 import { SurfaceSSAOPass } from './surface-ao';
+import { batchSurfaceGroups, surfaceMaterialRegions } from './surface-batching';
+import { prepareSurfacePicking, surfaceRaycast } from './surface-picking';
+import { labelBatch } from './label-batch';
 import { cameraHalfHeight, demonStatus, followFocus, motionSettled, orthographicDepth, spawnPoints } from './view-state';
 import { depth, directions, opposite } from './topology';
 import { portalPresentation, type levelLabels } from './level-labels';
@@ -77,6 +80,8 @@ export class GameScene {
   private noteMarkers: THREE.Object3D[] = [];
   private pointer = new THREE.Vector2();
   private hoverEvent?: PointerEvent;
+  private hoverPending = false;
+  private lastHover = 0;
   private size = new THREE.Vector2();
   private tilt = 32;
   private azimuth = -9;
@@ -90,12 +95,23 @@ export class GameScene {
   onNoteClick?: (text: string) => void;
   onStatus?: (temperature: Temperature, status: string) => void;
   private status = '';
+  private dirty = true;
+  private shadowDirty = true;
+  private shadowBounds?: THREE.Box3;
+  private labelsDirty = true;
+  private readonly boardCache = new Map<Level, {
+    board: THREE.Group; parts: THREE.Group; pieces: Map<number, THREE.Group>;
+    targets: Map<number, THREE.Vector3>; demons: DemonVisual[];
+    rods: GameScene['pistonRods']; grids: THREE.Object3D[]; notes: THREE.Object3D[];
+  }>();
 
   constructor(private host: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
+    this.renderer.transmissionResolutionScale = 0.5;
     this.renderer.setPixelRatio(renderPixelRatio(devicePixelRatio, true));
     this.sharedTextures.forEach(texture => { texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy(); });
     this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor('#ffffff', 0);
     this.renderer.domElement.setAttribute('aria-label', '三维关卡棋盘，使用方向键或 WASD 移动');
@@ -109,19 +125,20 @@ export class GameScene {
     this.controls.minPolarAngle = 0.02; this.controls.maxPolarAngle = Math.PI * 0.44;
     this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.controls.touches.ONE = THREE.TOUCH.ROTATE;
+    this.controls.addEventListener('change', () => { this.dirty = true; });
 
     this.scene.add(new THREE.HemisphereLight('#fffdf7', '#8a9299', 1.1));
     const sun = this.sun; sun.position.set(-9, 16, 7); sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.normalBias = 0.035; sun.shadow.bias = -0.00015; sun.shadow.radius = 3; this.scene.add(sun);
     const fill = new THREE.DirectionalLight('#dce8f1', 0.8); fill.position.set(7, 10, -10); this.scene.add(fill);
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ opacity: 0.23 }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.58; ground.receiveShadow = true; this.scene.add(ground);
-    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    const renderTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 2 });
     this.composer = new EffectComposer(this.renderer, renderTarget);
     this.composer.setPixelRatio(1);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.ao = new SurfaceSSAOPass(this.scene, this.camera, 1, 1, 16); this.ao.kernelRadius = 0.16; this.ao.minDistance = 0.001; this.ao.maxDistance = 0.1;
+    this.ao = new SurfaceSSAOPass(this.scene, this.camera, 1, 1, 8); this.ao.kernelRadius = 0.16; this.ao.minDistance = 0.001; this.ao.maxDistance = 0.1;
     this.ao.ssaoMaterial.defines.PERSPECTIVE_CAMERA = 0;
     this.ao.depthRenderMaterial.defines.PERSPECTIVE_CAMERA = 0;
     this.composer.addPass(this.ao);
@@ -208,10 +225,12 @@ export class GameScene {
       Array.from({ length: level.width }, (_, x) => occupied.has(`${x},0`) && occupied.has(`${x},${level.height - 1}`)).every(Boolean) &&
       Array.from({ length: level.height }, (_, y) => occupied.has(`0,${y}`) && occupied.has(`${level.width - 1},${y}`)).every(Boolean);
     const surfaces = solidCells.length ? bodySurfaceGeometries(solidCells, height, exterior ? level : undefined) : {};
+    if (Object.values(surfaces).some(geometry => geometry?.userData.materialRegions)) g.userData.materialRegions = surfaceMaterialRegions(cells);
     for (const [kind, geometry] of Object.entries(surfaces) as [string, THREE.BufferGeometry][]) {
       geometry.translate(solidCells[0].x - root.x, 0, solidCells[0].y - root.y);
       geometry.groups.forEach(group => { group.materialIndex = uniform ? 0 : cells.indexOf(solidCells[group.materialIndex ?? 0]); });
       const core = new THREE.Mesh(geometry, materials); core.castShadow = kind === 'solid'; core.receiveShadow = true;
+      core.raycast = surfaceRaycast;
       core.userData.bodySurface = true; core.userData.transmissiveOnly = kind === 'glass'; g.add(core);
     }
     g.userData.key = root.key; g.userData.cellKeys = cells.map(c => c.key); g.userData.materials = materials; g.userData.uniform = uniform;
@@ -299,7 +318,7 @@ export class GameScene {
         heads.setMatrixAt(i, matrix.makeTranslation(p.x - root.x, height + 0.071, p.y - root.y));
         slots.setMatrixAt(i, matrix.makeTranslation(p.x - root.x, height + 0.085, p.y - root.y));
       });
-      heads.castShadow = slots.castShadow = heads.receiveShadow = slots.receiveShadow = true; g.add(heads, slots);
+      heads.receiveShadow = slots.receiveShadow = true; g.add(heads, slots);
     }
     if (cells.some(c => !c.storesHeat)) {
       // Thermal barriers occlude transmitted light; surface decorations stay outside the refraction buffer.
@@ -333,10 +352,17 @@ export class GameScene {
     }
   }
 
-  private syncBodies(state: State, snap: boolean): void {
+  private syncBodies(state: State, snap: boolean, reuse = false): void {
     const rendered = new Map<number, { x: number; y: number }>();
     const anchors = new Map<number, THREE.Vector3>();
-    for (const group of this.pieces.values()) {
+    const byKey = reuse ? new Map(state.cells.map(cell => [cell.key, cell])) : undefined;
+    const retained = reuse ? [...this.pieces.values()].map(group => (group.userData.cellKeys as number[]).map(key => byKey!.get(key)!)) : [];
+    if (reuse && retained.some(cells => {
+      const data = this.pieces.get(cells[0].key)!.userData;
+      return data.uniform && cells.some(cell => cell.temperature !== cells[0].temperature) ||
+        data.materialRegions && surfaceMaterialRegions(cells).some((region, i) => region !== data.materialRegions[i]);
+    })) reuse = false;
+    if (!reuse) for (const group of this.pieces.values()) {
       const cells = group.userData.renderCells as Cell[], root = cells[0];
       for (const cell of cells) {
         rendered.set(cell.key, {
@@ -346,15 +372,17 @@ export class GameScene {
         anchors.set(cell.key, group.position.clone().add(new THREE.Vector3((cell.x - root.x) * group.scale.x, 0, (cell.y - root.y) * group.scale.z)));
       }
     }
-    const plan = snap ? { groups: bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key)), merging: false } : motionBodies(state.cells, rendered);
+    const plan = reuse ? { groups: retained, merging: false } : snap ? { groups: bodies(state.cells).map(cells => cells.sort((a, b) => a.key - b.key)), merging: false } : motionBodies(state.cells, rendered);
     const groups = plan.groups; this.mergingBodies = plan.merging;
     const live = new Set(groups.map(cells => cells[0].key));
     const remove = (key: number, group: THREE.Group) => {
+      this.labelsDirty = true;
       this.pistonRods = this.pistonRods.filter(p => p.rod.parent !== group);
       this.parts.remove(group); this.disposeGroup(group); this.pieces.delete(key); this.targets.delete(key);
     };
     for (const [key, group] of this.pieces) if (!live.has(key)) remove(key, group);
     for (const cells of groups) {
+      if (reuse) continue;
       const root = cells[0];
       const signature = JSON.stringify(cells.map(c => {
         const p = state.pistons?.find(p => p.baseKey === c.key || p.headKey === c.key);
@@ -363,10 +391,12 @@ export class GameScene {
       }));
       const uniform = cells.every(c => c.temperature === root.temperature && c.storesHeat === root.storesHeat);
       const existing = this.pieces.get(root.key);
-      if (!existing || existing.userData.signature !== signature || existing.userData.uniform && !uniform) {
+      const repartition = existing?.userData.materialRegions && surfaceMaterialRegions(cells).some((region, i) => region !== existing.userData.materialRegions[i]);
+      if (!existing || existing.userData.signature !== signature || existing.userData.uniform && !uniform || repartition) {
         const position = anchors.get(root.key);
         if (existing) remove(root.key, existing);
         const group = this.makeBody(cells, state);
+        this.labelsDirty = true;
         group.userData.signature = signature;
         group.scale.setScalar(Math.pow(0.72, depth(root, state.cells)));
         const target = new THREE.Vector3(root.x - (this.level!.width - 1) / 2, 0, root.y - (this.level!.height - 1) / 2);
@@ -382,6 +412,13 @@ export class GameScene {
       const thermalSignature = cells.map(c => c.temperature).join(',');
       if (group.userData.thermalSignature === thermalSignature) continue;
       group.userData.thermalSignature = thermalSignature;
+      const materialIndices = surfaceMaterialRegions(cells);
+      if (!group.userData.uniform) group.children.forEach(object => {
+        if (object instanceof THREE.Mesh && object.userData.bodySurface) batchSurfaceGroups(object.geometry, materialIndices);
+      });
+      group.children.forEach(object => {
+        if (object instanceof THREE.Mesh && object.userData.bodySurface) prepareSurfacePicking(object.geometry);
+      });
       const materials = group.userData.materials as THREE.MeshPhysicalMaterial[], fixed = cells.some(c => c.fixed);
       materials.forEach((m, i) => this.paint(m, group.userData.uniform ? root : cells[i], fixed));
       const layer = group.userData.surfaceLayer as THREE.BufferGeometry | undefined;
@@ -414,13 +451,25 @@ export class GameScene {
   }
 
   load(level: Level, state: State, labels: ReturnType<typeof levelLabels>, preserveCamera = false): void {
+    this.shadowBounds = undefined;
     preserveCamera ||= this.level?.id === level.id;
     this.cancelMotionWaits();
     if (preserveCamera) this.stopCameraInertia();
     this.hoverEvent = undefined; this.onHover?.(null);
-    this.scene.remove(this.board); this.disposeBoard();
+    this.scene.remove(this.board);
+    if (this.level) this.boardCache.set(this.level, {
+      board: this.board, parts: this.parts, pieces: this.pieces, targets: this.targets,
+      demons: this.demons, rods: this.pistonRods, grids: this.gridMeshes, notes: this.noteMarkers,
+    });
+    else this.disposeBoard();
+    const cached = this.boardCache.get(level);
+    this.boardCache.delete(level);
+    while (this.boardCache.size > 2) {
+      const oldest = this.boardCache.keys().next().value!;
+      this.disposeGroup(this.boardCache.get(oldest)!.board); this.boardCache.delete(oldest);
+    }
     this.board = new THREE.Group(); this.scene.add(this.board); this.level = level;
-    this.pieces.clear(); this.targets.clear(); this.pistonRods = []; this.gridMeshes = []; this.noteMarkers = [];
+    this.pieces = new Map(); this.targets = new Map(); this.pistonRods = []; this.gridMeshes = []; this.noteMarkers = [];
     this.parts = new THREE.Group(); this.board.add(this.parts); this.labels = labels; this.shownState = state;
     const w = level.width, h = level.height;
     const lightDirection = new THREE.Vector3(-9, 16, 7).normalize();
@@ -431,11 +480,22 @@ export class GameScene {
       new THREE.Vector3(-w / 2 - 1.2, -0.6, -h / 2 - 1.2),
       new THREE.Vector3(w / 2 + 1.2, 1.8, h / 2 + 1.2),
     ));
+    if (cached) {
+      this.scene.remove(this.board);
+      this.board = cached.board; this.parts = cached.parts; this.pieces = cached.pieces; this.targets = cached.targets;
+      this.demons = cached.demons; this.pistonRods = cached.rods; this.gridMeshes = cached.grids; this.noteMarkers = cached.notes;
+      this.scene.add(this.board);
+      this.setDiscoveredLevels(this.visited, true);
+      this.parts.traverse(object => { if (object.userData.pistonNumber) object.visible = this.pistonNumbers; });
+      this.update(state, true);
+      if (!preserveCamera) this.resetCamera();
+      this.resize(); return;
+    }
     const platform = this.mesh(new RoundedBoxGeometry(w + 0.55, 0.45, h + 0.55, 4, 0.16), this.physical('#f5f3ec'), this.board, 0, -0.205, 0);
     platform.receiveShadow = true;
     this.mesh(new RoundedBoxGeometry(w + 0.65, 0.12, h + 0.65, 3, 0.12), this.physical('#928a7e'), this.board, 0, -0.425, 0);
     const floorMaterial = this.physical(palette.floor); floorMaterial.roughness = 0.9; floorMaterial.clearcoat = 0.06; floorMaterial.metalness = 0;
-    const tiles = new THREE.InstancedMesh(new RoundedBoxGeometry(0.985, 0.05, 0.985, 2, 0.025), floorMaterial, w * h);
+    const tiles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.985, 0.05, 0.985), floorMaterial, w * h);
     const matrix = new THREE.Matrix4();
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { matrix.makeTranslation(x - (w - 1) / 2, 0.025, y - (h - 1) / 2); tiles.setMatrixAt(y * w + x, matrix); }
     tiles.receiveShadow = true; this.board.add(tiles);
@@ -480,13 +540,26 @@ export class GameScene {
 
   update(state: State, snap = false, activity: 'idle' | 'walking' | 'pushing' | 'resolving' = 'idle', duration?: number): void {
     if (!this.level) return;
+    this.dirty = this.shadowDirty = true;
     this.cancelMotionWaits();
     const { width: w, height: h } = this.level;
     const previous = this.shownState, positions = new Map(previous?.cells.map(c => [c.key, c]) ?? []);
     const moved = !previous || state.cells.some(c => { const p = positions.get(c.key); return !p || c.x !== p.x || c.y !== p.y || c.container !== p.container; }) ||
       state.players.some((p, i) => p.x !== previous.players[i]?.x || p.y !== previous.players[i]?.y || p.container !== previous.players[i]?.container) ||
       state.pistons?.some(p => p.expanded !== previous.pistons?.find(old => old.baseKey === p.baseKey)?.expanded);
-    this.shownState = state; this.activity = activity; this.syncBodies(state, snap);
+    const reuse = !snap && this.pieces.size > 0 && !this.mergingBodies && previous?.levelId === state.levelId &&
+      state.cells.length === previous.cells.length && state.cells.every((cell, i) => {
+        const old = previous.cells[i];
+        return cell.key === old.key && cell.x === old.x && cell.y === old.y && cell.edges === old.edges && cell.fixed === old.fixed &&
+          cell.storesHeat === old.storesHeat && cell.heatCapacity === old.heatCapacity && cell.container === old.container &&
+          cell.portal?.target === old.portal?.target && cell.portal?.shortcut === old.portal?.shortcut;
+      }) && state.players.length === previous.players.length && state.players.every((player, i) => player.container === previous.players[i].container) &&
+      (state.pistons?.length ?? 0) === (previous.pistons?.length ?? 0) && (state.pistons ?? []).every((piston, i) => {
+        const old = previous.pistons![i];
+        return piston.baseKey === old.baseKey && piston.headKey === old.headKey && piston.expanded === old.expanded && piston.direction === old.direction && piston.model === old.model && piston.order === old.order;
+      });
+    this.shownState = state; this.activity = activity; this.syncBodies(state, snap, reuse);
+    if (this.labelsDirty) this.rebuildLabels();
     while (this.demons.length > state.players.length) {
       const model = this.demons.pop()!; this.board.remove(model.group); this.disposeGroup(model.group);
     }
@@ -512,9 +585,10 @@ export class GameScene {
     if (this.hoverEvent) this.hover(this.hoverEvent);
   }
 
-  setDiscoveredLevels(ids: Iterable<string>): void {
+  setDiscoveredLevels(ids: Iterable<string>, force = false): void {
     const visited = new Set(ids);
-    if (visited.size === this.visited.size && [...visited].every(id => this.visited.has(id))) return;
+    if (!force && visited.size === this.visited.size && [...visited].every(id => this.visited.has(id))) return;
+    this.dirty = true;
     this.visited = visited;
     this.parts.traverse(object => {
       const cell = object.userData.portalCell as Cell | undefined;
@@ -524,7 +598,19 @@ export class GameScene {
       const material = object.material as THREE.MeshBasicMaterial;
       material.map?.dispose(); material.map = labelTexture(label.text, label.weight, label.ink, label.locked);
       object.userData.locked = label.locked;
+      this.labelsDirty = true;
     });
+  }
+
+  private rebuildLabels(): void {
+    const previous = this.board.userData.labelBatch as ReturnType<typeof labelBatch> | undefined;
+    if (previous) { this.board.remove(previous.mesh); this.disposeGroup(new THREE.Group().add(previous.mesh)); }
+    const labels: THREE.Mesh[] = [];
+    this.parts.traverse(object => { if (object instanceof THREE.Mesh && object.userData.labelKey !== undefined) labels.push(object); });
+    const batch = labels.length ? labelBatch(labels) : undefined;
+    this.board.userData.labelBatch = batch;
+    if (batch) this.board.add(batch.mesh);
+    this.labelsDirty = false;
   }
 
   animatePortal(points: { x: number; y: number }[], emerging = false): Promise<boolean> {
@@ -555,16 +641,16 @@ export class GameScene {
     }
   }
 
-  togglePistonNumbers(): boolean { this.pistonNumbers = !this.pistonNumbers; this.parts.traverse(object => { if (object.userData.pistonNumber) object.visible = this.pistonNumbers; }); return this.pistonNumbers; }
+  togglePistonNumbers(): boolean { this.dirty = true; this.pistonNumbers = !this.pistonNumbers; this.parts.traverse(object => { if (object.userData.pistonNumber) object.visible = this.pistonNumbers; }); return this.pistonNumbers; }
 
   setTilt(degrees: number): void { if (this.tilt === degrees) return; this.tilt = degrees; this.resetCamera(); }
-  setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { m.visible = visible; }); }
+  setGrid(visible: boolean): void { this.gridMeshes.forEach(m => { if (m.visible !== visible) this.dirty = true; m.visible = visible; }); }
   setQuality(high: boolean): void {
     this.ao.enabled = high;
     const ratio = renderPixelRatio(devicePixelRatio, high);
     this.renderer.setPixelRatio(ratio); this.resize();
   }
-  setExposure(exposure: number): void { this.renderer.toneMappingExposure = exposure; }
+  setExposure(exposure: number): void { this.dirty = true; this.renderer.toneMappingExposure = exposure; }
   private stopCameraInertia(): void {
     const position = this.camera.position.clone(), target = this.controls.target.clone();
     const damping = this.controls.enableDamping;
@@ -584,14 +670,17 @@ export class GameScene {
 
   private resize(): void {
     const width = this.host.clientWidth, height = this.host.clientHeight; if (!width || !height) return;
+    this.dirty = true;
     this.renderer.setSize(width, height);
     const aspect = width / height, w = this.level?.width ?? 9, h = this.level?.height ?? 8;
     const yaw = THREE.MathUtils.degToRad(this.azimuth), tilt = THREE.MathUtils.degToRad(this.tilt);
     const vertical = cameraHalfHeight(w, h, aspect, tilt, yaw);
     this.camera.left = -vertical * aspect; this.camera.right = vertical * aspect; this.camera.top = vertical; this.camera.bottom = -vertical;
     this.camera.updateProjectionMatrix();
+    this.ao.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(this.camera.projectionMatrix);
+    this.ao.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(this.camera.projectionMatrixInverse);
     this.renderer.getDrawingBufferSize(this.size);
-    this.composer.setSize(this.size.x, this.size.y);
+    if (this.composer.readBuffer.width !== this.size.x || this.composer.readBuffer.height !== this.size.y) this.composer.setSize(this.size.x, this.size.y);
   }
 
   private hit(event: MouseEvent): { key?: number; portal?: string; note?: string } | undefined {
@@ -610,7 +699,10 @@ export class GameScene {
     const cell = pickBodyCell(this.shownState!.cells.filter(c => keys.includes(c.key)), { x: local.x + root.x, y: local.z + root.y }, hit.object.userData.labelKey);
     return cell && { key: cell.key, portal: cell.portal?.target };
   }
-  private hover(event: PointerEvent): void { this.hoverEvent = event; const hit = this.hit(event); this.onHover?.(hit?.key ?? null, this.shownState); }
+  private hover(event: PointerEvent): void {
+    if (event.buttons) { this.hoverEvent = undefined; this.hoverPending = false; this.onHover?.(null); return; }
+    this.hoverEvent = event; this.hoverPending = true;
+  }
   private animate(): void {
     const now = performance.now(), dt = Math.min((now - this.previousTime) / 1000, 0.1); this.previousTime = now;
     if (!this.running) return;
@@ -650,13 +742,35 @@ export class GameScene {
       model.group.updateWorldMatrix(true, false);
       model.face.quaternion.copy(model.group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(cameraFacing));
     }
-    this.composer.render();
+    const animating = !finished || !!this.portalMotion || thinking || this.mergingBodies;
+    if (this.labelsDirty) this.rebuildLabels();
+    if (!finished || this.shadowDirty) this.board.userData.labelBatch?.update();
+    if (this.dirty || animating) {
+      if (this.level) {
+        const { width, height } = this.level;
+        const bounds = visibleShadowBounds(this.camera, new THREE.Box3(
+          new THREE.Vector3(-width / 2 - 1.2, -0.6, -height / 2 - 1.2),
+          new THREE.Vector3(width / 2 + 1.2, 1.8, height / 2 + 1.2),
+        ), this.sun.position);
+        if (!this.shadowBounds?.equals(bounds)) {
+          fitShadowCamera(this.sun.shadow.camera, bounds);
+          this.shadowBounds = bounds; this.shadowDirty = true;
+        }
+      }
+      this.renderer.shadowMap.needsUpdate = this.shadowDirty || animating;
+      this.composer.render();
+      this.dirty = animating; this.shadowDirty = animating;
+    }
     if (this.portalMotion && now - this.portalMotion.start >= this.portalMotion.duration) this.portalMotion = undefined;
     if (this.motionWaiters.length && !this.portalMotion) {
       const distances = [...this.pieces].map(([key, group]) => group.position.distanceTo(this.targets.get(key)!));
       distances.push(...this.demons.map(d => Math.hypot(d.group.position.x - d.target.x, d.group.position.z - d.target.z)));
       distances.push(...this.pistonRods.map(p => Math.abs(p.rod.scale.y - p.target)));
       if (motionSettled(now - this.lastStep, distances)) this.motionWaiters.splice(0).forEach(resolve => resolve(true));
+    }
+    if (this.hoverPending && this.hoverEvent && !animating && now - this.lastHover >= 100) {
+      this.lastHover = now; this.hoverPending = false;
+      const hit = this.hit(this.hoverEvent); this.onHover?.(hit?.key ?? null, this.shownState);
     }
   }
   private disposeBoard(): void {
@@ -665,6 +779,7 @@ export class GameScene {
   private disposeGroup(group: THREE.Group): void {
     const materials = new Set<THREE.Material>(), geometries = new Set<THREE.BufferGeometry>();
     group.traverse(o => {
+      if (o instanceof THREE.InstancedMesh) o.dispose();
       if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) { geometries.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => materials.add(m)); }
     });
     geometries.forEach(g => g.dispose()); materials.forEach(m => {
